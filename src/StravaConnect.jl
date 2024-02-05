@@ -21,7 +21,6 @@ end
 
 User(client_id, client_secret) = User(client_id, client_secret, "", "", "", 0, 0, Dict{String, Any}())
 
-
 function link_prompt(u::User, uri = "http://127.0.0.1:8081/authorization", browser_launch = true)
     url = "https://www.strava.com/oauth/authorize?client_id=$(u.client_id)&redirect_uri=$uri&response_type=code&scope=activity:read_all,profile:read_all"
     
@@ -72,7 +71,9 @@ function authorize!(u::User)
         )
     ).body |> String |> JSON.parse
 
+    # TODO only save id and other important info from profile
     u.athlete = response["athlete"]
+
     u.access_token = response["access_token"]
     u.refresh_token = response["refresh_token"]
     u.expires_at = response["expires_at"]
@@ -101,7 +102,6 @@ function refresh!(u::User)
         )
     ).body |> String |> JSON.parse
 
-    u.athlete = response["athlete"]
     u.access_token = response["access_token"]
     u.refresh_token = response["refresh_token"]
     u.expires_at = response["expires_at"]
@@ -113,7 +113,7 @@ function refresh!(u::User)
 end
 
 """
-refeshes user tokens if needed
+refeshes user tokens if they are expired
 """
 function refresh_if_needed!(u::User)
     if time() > u.expires_at
