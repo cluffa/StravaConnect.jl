@@ -2,6 +2,7 @@ using StravaConnect
 using DataFrames
 using Dates
 
-user = setup_user()
+u = setup_user()
 
-get_activities(user)
+activities = get_all_activities(u)
+activity = get_activity("10690510371", u)
