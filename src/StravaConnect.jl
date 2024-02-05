@@ -5,7 +5,6 @@ using URIs
 using JSON
 using DefaultApplication
 using Serialization
-using DataFrames
 using Dates
 
 export User, refresh_if_needed!, setup_user, get_all_activities, get_activity
@@ -66,7 +65,7 @@ function authorize!(u::User)::Nothing
     
     # TODO Error handling
     # initial request for access_token using auth code
-    response = HTTP.post(
+    response = JSON.parse(String(HTTP.post(
         "https://www.strava.com/oauth/token",
         [],
         HTTP.Form(
@@ -77,7 +76,7 @@ function authorize!(u::User)::Nothing
                 "grant_type" => "authorization_code"
             )
         )
-    ).body |> String |> JSON.parse
+    ).body))
 
     # TODO only save id and other important info from profile
     u.athlete = response["athlete"]
@@ -164,9 +163,17 @@ end
 """
 gets all activities and returns dataframe
 """
-function get_all_activities(u::User)::DataFrame
+function get_all_activities(u::User)::NamedTuple
     per_page = 200
-    activities = []
+    activities = (
+        id = Int64[],
+        name = String[],
+        distance = Float64[],
+        distance_mi = Float64[],
+        start_date_local = DateTime[],
+        elapsed_time = Float64[],
+        sport_type = String[]
+        )
     page = 1
     while true
         # TODO Error handling
@@ -176,15 +183,13 @@ function get_all_activities(u::User)::DataFrame
             ).body))
         
         for activity in response
-            row = (
-                id = activity["id"],
-                name = activity["name"],
-                distance = activity["distance"], # * METER_TO_MILE, # meter to mile
-                date = DateTime(activity["start_date_local"], dateformat"yyyy-mm-ddTHH:MM:SSZ"),
-                sport = activity["sport_type"],
-            )
-
-            push!(activities, row)
+            push!(activities.id, activity["id"])
+            push!(activities.name, activity["name"])
+            push!(activities.distance, activity["distance"])
+            push!(activities.distance_mi, activity["distance"] * METER_TO_MILE)
+            push!(activities.start_date_local, DateTime(activity["start_date_local"], dateformat"yyyy-mm-ddTHH:MM:SSZ"))
+            push!(activities.elapsed_time, activity["elapsed_time"])
+            push!(activities.sport_type, activity["sport_type"])
         end
 
         if length(response) < per_page
@@ -194,15 +199,12 @@ function get_all_activities(u::User)::DataFrame
         page += 1
     end
 
-    return DataFrame(activities)
+    return activities
 end
 
-function get_activity(
-    id,
-    u::User,
-    streamkeys::AbstractVector{AbstractString} = ["time", "distance", "latlng", "altitude", "velocity_smooth", "heartrate", "cadence", "watts", "temp", "moving", "grade_smooth"]
-    )::DataFrame
-    
+
+function get_activity(id, u::User)::NamedTuple
+    streamkeys = ["time", "distance", "latlng", "altitude", "velocity_smooth", "heartrate", "cadence", "watts", "temp", "moving", "grade_smooth"]
     # TODO error handling
     response = JSON.parse(String(HTTP.get(
                     "https://www.strava.com/api/v3/activities/$id/streams?keys=$(join(streamkeys, ","))&key_by_type=true",
@@ -212,21 +214,34 @@ function get_activity(
                         )
                 ).body))
 
-    # TODO find better way to get correct column data type
-    df = DataFrame([key => [response[key]["data"]...] for key in streamkeys if haskey(response, key)])
+    df = (
+        time = Int64[],
+        distance = Float64[],
+        distance_mi = Float64[],
+        latlng = Tuple{Float64, Float64}[],
+        altitude = Float64[],
+        altitude_ft = Float64[],
+        velocity_smooth = Float64[],
+        heartrate = Int64[],
+        cadence = Int64[],
+        watts = Float64[],
+        temp = Int64[],
+        moving = Bool[],
+        grade_smooth = Float64[]
+    )
 
-    # for all gps activities
-    if haskey(response, "latlng")
-        df.latlng = convert(Vector{Vector{Float64}}, df.latlng)
+    for key in streamkeys
+        if haskey(response, key)
+            if key == "latlng"
+                append!(df[Symbol(key)], Tuple.(response[key]["data"]))
+            else
+                append!(df[Symbol(key)], response[key]["data"])
+            end
+        end
     end
 
-    if haskey(response, "distance")
-        df.distance_mi = df.distance * METER_TO_MILE
-    end
-
-    if haskey(response, "altitude")
-        df.altitude_ft = df.altitude * METER_TO_FEET
-    end
+    append!(df.distance_mi, df.distance * METER_TO_MILE)
+    append!(df.altitude_ft, df.altitude * METER_TO_FEET)
     
     return df
 end

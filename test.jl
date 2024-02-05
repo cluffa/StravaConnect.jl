@@ -1,7 +1,4 @@
 using StravaConnect
-using DataFrames
-using Dates
-
 u = setup_user()
 
 activities = get_all_activities(u)
