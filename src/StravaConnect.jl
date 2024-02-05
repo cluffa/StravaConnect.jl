@@ -6,6 +6,7 @@ using JSON
 using DefaultApplication
 using Serialization
 using Dates
+using Memoize
 
 export User, refresh_if_needed!, setup_user, get_all_activities, get_activity
 
@@ -163,7 +164,7 @@ end
 """
 gets all activities and returns dataframe
 """
-function get_all_activities(u::User)::NamedTuple
+@memoize function get_all_activities(u::User)::NamedTuple
     per_page = 200
     activities = (
         id = Int64[],
@@ -203,7 +204,7 @@ function get_all_activities(u::User)::NamedTuple
 end
 
 
-function get_activity(id, u::User)::NamedTuple
+@memoize function get_activity(id, u::User)::NamedTuple
     streamkeys = ["time", "distance", "latlng", "altitude", "velocity_smooth", "heartrate", "cadence", "watts", "temp", "moving", "grade_smooth"]
     # TODO error handling
     response = JSON.parse(String(HTTP.get(
