@@ -227,6 +227,7 @@ end
         cadence = Int64[],
         watts = Float64[],
         temp = Int64[],
+        temp_f = Float64[],
         moving = Bool[],
         grade_smooth = Float64[]
     )
@@ -243,6 +244,7 @@ end
 
     append!(df.distance_mi, df.distance * METER_TO_MILE)
     append!(df.altitude_ft, df.altitude * METER_TO_FEET)
+    append!(df.temp_f, c2f(df.temp))
     
     return df
 end
