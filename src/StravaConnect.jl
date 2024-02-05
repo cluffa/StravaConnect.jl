@@ -5,8 +5,10 @@ using URIs
 using JSON
 using DefaultApplication
 using Serialization
+using DataFrames
+using Dates
 
-export User, refresh_if_needed!, setup_user
+export User, refresh_if_needed!, setup_user, get_activities
 
 mutable struct User
     client_id::String
@@ -39,7 +41,7 @@ authorizes new user `u` using strava login
 """
 function authorize!(u::User)
     link_prompt(u)
-
+    
     server = HTTP.serve!(8081) do req
         params = queryparams(req)
 
@@ -57,6 +59,7 @@ function authorize!(u::User)
     read(stdin, 1)
     close(server)
     
+    # TODO Error handling
     # initial request for access_token using auth code
     response = HTTP.post(
         "https://www.strava.com/oauth/token",
@@ -88,6 +91,7 @@ end
 refreshes user tokens
 """
 function refresh!(u::User)
+    # TODO Error handling
     # request for updated access_token using refresh_token
     response = HTTP.post(
         "https://www.strava.com/oauth/token",
@@ -116,7 +120,8 @@ end
 refeshes user tokens if they are expired
 """
 function refresh_if_needed!(u::User)
-    if time() > u.expires_at
+    # if token expires in less than 5 min
+    if (u.expires_at - time()) < 300
         @info "token refreshed"
         refresh!(u)
     else
@@ -149,6 +154,42 @@ function setup_user(token_file = ".tokens", secret_file = ".secret")
     Serialization.serialize(token_file, user)
 
     return user
+end
+
+"""
+gets all activities and returns dataframe
+"""
+function get_activities(u::User)
+    per_page = 200
+    activities = []
+    page = 1
+    while true
+        # TODO Error handling
+        response = JSON.parse(String(HTTP.get(
+                "https://www.strava.com/api/v3/athlete/activities?page=$page&per_page=$per_page",
+                headers = Dict("Authorization:" => "Bearer $(u.access_token)")
+            ).body))
+        
+        for activity in response
+            row = (
+                id = activity["id"],
+                name = activity["name"],
+                distance = activity["distance"] * 0.000621371, # meter to mile
+                date = DateTime(activity["start_date_local"], dateformat"yyyy-mm-ddTHH:MM:SSZ"),
+                sport = activity["sport_type"],
+            )
+
+            push!(activities, row)
+        end
+
+        if length(response) < per_page
+            break
+        end
+
+        page += 1
+    end
+
+    return DataFrame(activities)
 end
 
 end  # module
