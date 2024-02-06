@@ -244,7 +244,7 @@ end
 
     append!(df.distance_mi, df.distance * METER_TO_MILE)
     append!(df.altitude_ft, df.altitude * METER_TO_FEET)
-    append!(df.temp_f, c2f(df.temp))
+    append!(df.temp_f, c2f.(df.temp))
     
     return df
 end
