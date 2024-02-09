@@ -7,6 +7,7 @@ CLIENT ID
 CLIENT SECRET
 ```
 
+### Examples
 ```julia
 using StravaConnect
 user = setup_user()
