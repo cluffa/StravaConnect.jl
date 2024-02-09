@@ -1,6 +1,12 @@
 # StravaConnect.jl  
 ## WIP
 
+create a .secret file like so:
+```
+CLIENT ID
+CLIENT SECRET
+```
+
 ```julia
 using StravaConnect
 user = setup_user()
