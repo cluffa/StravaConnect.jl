@@ -1,7 +1,7 @@
 # StravaConnect.jl  
 ## WIP
 
-create a .secret file like so:
+create a .secret file with contents:
 ```
 CLIENT ID
 CLIENT SECRET
