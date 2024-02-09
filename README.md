@@ -39,5 +39,3 @@ moving = Bool[]
 grade_smooth = Float64[]
 ```  
 only when applicable, otherwise vectors are empty.
-
-I may swap to a `Vector` of `NamedTuple`s instead of a `NamedTuple` of `Vector`s
