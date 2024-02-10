@@ -162,7 +162,7 @@ function setup_user(token_file::AbstractString = ".tokens", secret_file::Abstrac
 end
 
 """
-gets all activities and returns dataframe
+gets all activities and returns NamedTuple
 """
 @memoize function get_all_activities(u::User)::NamedTuple
     per_page = 200
@@ -204,6 +204,9 @@ gets all activities and returns dataframe
 end
 
 
+"""
+gets activity using id, returns NamedTuple of vectors
+"""
 @memoize function get_activity(id, u::User)::NamedTuple
     streamkeys = ["time", "distance", "latlng", "altitude", "velocity_smooth", "heartrate", "cadence", "watts", "temp", "moving", "grade_smooth"]
     # TODO error handling
