@@ -2,4 +2,5 @@ using StravaConnect
 u = setup_user()
 
 activities = get_all_activities(u)
-activity = get_activity("10690510371", u)
+
+activity_data = [get_activity(id, u; temp_dir = "./data/") for id in activities.id]

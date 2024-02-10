@@ -203,11 +203,16 @@ gets all activities and returns NamedTuple
     return activities
 end
 
-
 """
 gets activity using id, returns NamedTuple of vectors
 """
-@memoize function get_activity(id, u::User)::NamedTuple
+function get_activity(id, u::User; temp_dir = tempdir())::NamedTuple
+    temp_file = joinpath(temp_dir, "activity_$id.bin")
+
+    if isfile(temp_file)
+        return Serialization.deserialize(temp_file)
+    end
+
     streamkeys = ["time", "distance", "latlng", "altitude", "velocity_smooth", "heartrate", "cadence", "watts", "temp", "moving", "grade_smooth"]
     # TODO error handling
     response = JSON.parse(String(HTTP.get(
@@ -248,7 +253,9 @@ gets activity using id, returns NamedTuple of vectors
     append!(df.distance_mi, df.distance * METER_TO_MILE)
     append!(df.altitude_ft, df.altitude * METER_TO_FEET)
     append!(df.temp_f, c2f.(df.temp))
-    
+
+    Serialization.serialize(temp_file, df)
+
     return df
 end
 

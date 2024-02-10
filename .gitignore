@@ -3,3 +3,5 @@
 .tokens
 Manifest.toml
 .vscode/
+
+data/
