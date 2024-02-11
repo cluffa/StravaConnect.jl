@@ -64,20 +64,24 @@ function authorize!(u::User)::Nothing
     read(stdin, 1)
     close(server)
     
-    # TODO Error handling
     # initial request for access_token using auth code
-    response = JSON.parse(String(HTTP.post(
-        "https://www.strava.com/oauth/token",
-        [],
-        HTTP.Form(
-            Dict(
-                "client_id" => u.client_id,
-                "client_secret" => u.client_secret,
-                "code" => u.code,
-                "grant_type" => "authorization_code"
+    response = try
+        JSON.parse(String(HTTP.post(
+            "https://www.strava.com/oauth/token",
+            [],
+            HTTP.Form(
+                Dict(
+                    "client_id" => u.client_id,
+                    "client_secret" => u.client_secret,
+                    "code" => u.code,
+                    "grant_type" => "authorization_code"
+                )
             )
-        )
-    ).body))
+        ).body))
+    catch e
+        @error "Failed to get authorization: $(e)"
+        return nothing
+    end
 
     # TODO only save id and other important info from profile
     u.athlete = response["athlete"]
@@ -96,8 +100,26 @@ end
 refreshes user tokens
 """
 function refresh!(u::User)::Nothing
-    # TODO Error handling
     # request for updated access_token using refresh_token
+    response = try
+        JSON.parse(String(HTTP.post(
+            "https://www.strava.com/oauth/token",
+            [],
+            HTTP.Form(
+                Dict(
+                    "client_id" => u.client_id,
+                    "client_secret" => u.client_secret,
+                    "refresh_token" => u.refresh_token,
+                    "grant_type" => "refresh_token"
+                )
+            )
+        ).body))
+    catch e
+        @error "Failed to refresh token: $(e)"
+        return nothing
+    end
+
+
     response = HTTP.post(
         "https://www.strava.com/oauth/token",
         [],
@@ -177,11 +199,16 @@ gets all activities and returns NamedTuple
         )
     page = 1
     while true
-        # TODO Error handling
-        response = JSON.parse(String(HTTP.get(
+        response = try
+            JSON.parse(String(HTTP.get(
                 "https://www.strava.com/api/v3/athlete/activities?page=$page&per_page=$per_page",
                 headers = Dict("Authorization" => "Bearer $(u.access_token)")
             ).body))
+        catch e
+            @error "Failed to get activities: $(e)"
+            return nothing
+        end
+        
         
         for activity in response
             push!(activities.id, activity["id"])
@@ -214,14 +241,19 @@ function get_activity(id, u::User; temp_dir = tempdir())::NamedTuple
     end
 
     streamkeys = ["time", "distance", "latlng", "altitude", "velocity_smooth", "heartrate", "cadence", "watts", "temp", "moving", "grade_smooth"]
-    # TODO error handling
-    response = JSON.parse(String(HTTP.get(
-                    "https://www.strava.com/api/v3/activities/$id/streams?keys=$(join(streamkeys, ","))&key_by_type=true",
-                    headers = Dict(
-                        "Authorization" => "Bearer $(u.access_token)",
-                        "accept" => "application/json"
-                        )
-                ).body))
+    
+    try
+        JSON.parse(String(HTTP.get(
+            "https://www.strava.com/api/v3/activities/$id/streams?keys=$(join(streamkeys, ","))&key_by_type=true",
+            headers = Dict(
+                "Authorization" => "Bearer $(u.access_token)",
+                "accept" => "application/json"
+                )
+        ).body))
+    catch e
+        @error "Failed to get activity: $(e)"
+        return nothing
+    end
 
     df = (
         time = Int64[],
