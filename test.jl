@@ -3,8 +3,8 @@ u = setup_user();
 
 activities = get_all_activities(u);
 
-activities.id |> typeof
+unique(activities.sport_type)
 
-activity = get_activity(last(activities.id), u; temp_dir = "./data/")
+runs = activities.id[contains.(activities.sport_type, "Run")]
 
-activity |> typeof
+run_data = [get_activity(id, u) for id in runs]

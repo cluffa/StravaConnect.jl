@@ -10,6 +10,8 @@ using Memoize
 
 export User, refresh_if_needed!, setup_user, get_all_activities, get_activity
 
+DATA_DIR = "./data"
+
 # conversions
 METER_TO_MILE = 0.000621371
 METER_TO_FEET = 3.28084
@@ -138,7 +140,7 @@ function refresh!(u::User)::Nothing
     u.expires_at = response["expires_at"]
     u.expires_in = response["expires_in"]
 
-    @info "new token expires in $(round(u.expires_in/86400; digits = 1)) days"
+    @info "new token expires in $(round(u.expires_in/86400; digits = 2)) days"
 
     return nothing
 end
@@ -152,7 +154,7 @@ function refresh_if_needed!(u::User)::Nothing
         @info "token refreshed"
         refresh!(u)
     else
-        @info "token refresh not needed"
+        @info "token refresh not needed, valid for $(round((u.expires_at - time())/1440; digits = 2)) days"
     end
 
     return nothing
@@ -186,22 +188,35 @@ end
 """
 gets all activities and returns NamedTuple
 """
-@memoize function get_all_activities(u::User)::NamedTuple
-    per_page = 200
-    activities = (
-        id = Int64[],
-        name = String[],
-        distance = Float64[],
-        distance_mi = Float64[],
-        start_date_local = DateTime[],
-        elapsed_time = Float64[],
-        sport_type = String[]
+@memoize function get_all_activities(u::User; dataDir = DATA_DIR)::NamedTuple
+    # check last time of cache
+    if isfile(joinpath(dataDir, "activities.bin"))
+        t_cache = floor(Int, mtime(joinpath(dataDir, "activities.bin")))
+        activities = Serialization.deserialize(joinpath(dataDir, "activities.bin"))
+    else
+        t_cache = 0
+        activities = (
+            id = Int64[],
+            name = String[],
+            distance = Float64[],
+            distance_mi = Float64[],
+            start_date_local = DateTime[],
+            elapsed_time = Float64[],
+            sport_type = String[]
         )
+    end
+
+    per_page = 200
+
+    n_cache = length(activities.id)
+
+    @info "$(n_cache) activities loaded from cache, getting activities after $(unix2datetime(t_cache))"
+
     page = 1
     while true
         response = try
             JSON.parse(String(HTTP.get(
-                "https://www.strava.com/api/v3/athlete/activities?page=$page&per_page=$per_page",
+                "https://www.strava.com/api/v3/athlete/activities?page=$page&per_page=$per_page&after=$t_cache",
                 headers = Dict("Authorization" => "Bearer $(u.access_token)")
             ).body))
         catch e
@@ -227,14 +242,20 @@ gets all activities and returns NamedTuple
         page += 1
     end
 
+    n_new = length(activities.id) - n_cache
+
+    @info "$(n_new) new activities loaded, total $(length(activities.id)) activities"
+
+    Serialization.serialize(joinpath(dataDir, "activities.bin"), activities)
+
     return activities
 end
 
 """
 gets activity using id, returns NamedTuple of vectors
 """
-function get_activity(id, u::User; temp_dir = tempdir())::NamedTuple
-    temp_file = joinpath(temp_dir, "activity_$id.bin")
+function get_activity(id, u::User; dataDir = DATA_DIR)::NamedTuple
+    temp_file = joinpath(dataDir, "activity_$id.bin")
 
     if isfile(temp_file)
         return Serialization.deserialize(temp_file)
@@ -273,7 +294,7 @@ function get_activity(id, u::User; temp_dir = tempdir())::NamedTuple
     )
 
     for key in streamkeys
-        if haskey(response, key)
+        if haskey(response, key) && !any(isnothing.(response[key]["data"]))
             if key == "latlng"
                 append!(df[Symbol(key)], Tuple.(response[key]["data"]))
             else

@@ -1,7 +1,7 @@
 name = "StravaConnect"
 uuid = "8d2463bb-d662-4464-8f8f-821ae076ff02"
 authors = ["cluffa <cluffa@users.noreply.github.com>"]
-version = "0.2"
+version = "0.3"
 
 [deps]
 Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
