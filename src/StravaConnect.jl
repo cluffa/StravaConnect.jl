@@ -242,7 +242,7 @@ function get_activity(id, u::User; temp_dir = tempdir())::NamedTuple
 
     streamkeys = ["time", "distance", "latlng", "altitude", "velocity_smooth", "heartrate", "cadence", "watts", "temp", "moving", "grade_smooth"]
     
-    try
+    response = try
         JSON.parse(String(HTTP.get(
             "https://www.strava.com/api/v3/activities/$id/streams?keys=$(join(streamkeys, ","))&key_by_type=true",
             headers = Dict(
