@@ -1,5 +1,6 @@
 # StravaConnect.jl  
 ## WIP
+## Functionality may change without notice
 
 create a .secret file with contents:
 ```
