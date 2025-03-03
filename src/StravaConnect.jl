@@ -6,15 +6,14 @@ using JSON
 using DefaultApplication
 using Serialization
 using Dates
-using Memoize
 
 export User, refresh_if_needed!, setup_user, get_all_activities, get_activity
 
-DATA_DIR = "./data"
+const DATA_DIR = "./data"
 
 # conversions
-METER_TO_MILE = 0.000621371
-METER_TO_FEET = 3.28084
+const METER_TO_MILE = 0.000621371
+const METER_TO_FEET = 3.28084
 c2f(c) = (c * 9/5) + 32
 
 mutable struct User
@@ -44,6 +43,8 @@ function link_prompt(u::User, uri = "http://127.0.0.1:8081/authorization", brows
 end
 
 """
+    authorize!(u::User)::Nothing
+
 authorizes new user `u` using strava login
 """
 function authorize!(u::User)::Nothing
@@ -99,6 +100,8 @@ function authorize!(u::User)::Nothing
 end
 
 """
+    refresh!(u::User)::Nothing
+
 refreshes user tokens
 """
 function refresh!(u::User)::Nothing
@@ -146,6 +149,8 @@ function refresh!(u::User)::Nothing
 end
 
 """
+    refresh_if_needed!(u::User)::Nothing
+
 refeshes user tokens if they are expired
 """
 function refresh_if_needed!(u::User)::Nothing
@@ -161,19 +166,23 @@ function refresh_if_needed!(u::User)::Nothing
 end
 
 
-"""
-Sets up a new user using client id and secret from a file named .secret
-this file contains client id on line 1 and client secret on line 2 
 
-or loads user tokens from .tokens if present
 """
-function setup_user(token_file::AbstractString = ".tokens", secret_file::AbstractString = ".secret")::User
-    user = if isfile(token_file)
+    setup_user(token_file::AbstractString = ".tokens", force_auth::Bool = false)::User
+
+Sets up user by loading tokens from file or authorizing new user
+Requires STRAVA_CLIENT_ID and STRAVA_CLIENT_SECRET to be set in ENV
+"""
+function setup_user(token_file::AbstractString = ".tokens", force_auth::Bool = false)::User
+    user = if isfile(token_file) && !force_auth
         Serialization.deserialize(token_file)
     else
-        @assert isfile(secret_file) "Error: Need to create .secret file with client id and client secret (on lines 1 & 2)"
-        user_id, user_secret = strip.(readlines(secret_file))
-        new_user = User(user_id, user_secret)
+        @assert haskey(ENV, "STRAVA_CLIENT_ID") "STRAVA_CLIENT_ID not set"
+        @assert haskey(ENV, "STRAVA_CLIENT_SECRET") "STRAVA_CLIENT_SECRET not set"
+        client_id = ENV["STRAVA_CLIENT_ID"]
+        client_secret = ENV["STRAVA_CLIENT_SECRET"]
+        
+        new_user = User(client_id, client_secret)
         authorize!(new_user)
 
         new_user
@@ -186,9 +195,11 @@ function setup_user(token_file::AbstractString = ".tokens", secret_file::Abstrac
 end
 
 """
-gets all activities and returns NamedTuple
+    get_all_activities(u::User; dataDir = DATA_DIR)::NamedTuple
+
+gets all activities and returns NamedTuple, caches to file
 """
-@memoize function get_all_activities(u::User; dataDir = DATA_DIR)::NamedTuple
+function get_all_activities(u::User; dataDir = DATA_DIR)::NamedTuple
     # check last time of cache
     if isfile(joinpath(dataDir, "activities.bin"))
         t_cache = floor(Int, mtime(joinpath(dataDir, "activities.bin")))
@@ -252,6 +263,8 @@ gets all activities and returns NamedTuple
 end
 
 """
+    get_activity(id, u::User; dataDir = DATA_DIR)::NamedTuple
+
 gets activity using id, returns NamedTuple of vectors
 """
 function get_activity(id, u::User; dataDir = DATA_DIR)::NamedTuple
