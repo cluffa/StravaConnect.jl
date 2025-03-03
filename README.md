@@ -2,10 +2,10 @@
 ## WIP
 ## Functionality may change without notice
 
-create a .secret file with contents:
+Set these environment variables
 ```
-CLIENT ID
-CLIENT SECRET
+STRAVA_CLIENT_ID
+STRAVA_CLIENT_SECRET
 ```
 
 ### Examples
