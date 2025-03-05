@@ -141,7 +141,7 @@ gets all activities and returns NamedTuple, caches to file
 function get_activity_list(u::User; dataDir = DATA_DIR)::NamedTuple
     isdir(dataDir) || mkdir(dataDir)
 
-    file = jldopen(joinpath(dataDir, "data.jld2"), "a+", compress)
+    file = jldopen(joinpath(dataDir, "data.jld2"), "a+", compress=true)
         
     if haskey(file, "activities") && haskey(file, "mtime")
         mtime = file["mtime"]
@@ -224,7 +224,7 @@ function get_activity(id, u::User; dataDir = DATA_DIR)::NamedTuple
     refresh_if_needed!(u)
     isdir(dataDir) || mkdir(dataDir)
 
-    file = jldopen(joinpath(dataDir, "data.jld2"), "a+")
+    file = jldopen(joinpath(dataDir, "data.jld2"), "a+", compress=true)
 
     if haskey(file, "activity_$id")
         out = file["activity_$id"]
