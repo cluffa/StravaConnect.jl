@@ -1,6 +1,5 @@
 # StravaConnect.jl  
-## WIP
-## Functionality may change without notice
+## WIP Functionality may change without notice
 
 Set these environment variables
 ```
@@ -11,11 +10,15 @@ STRAVA_CLIENT_SECRET
 ### Examples
 ```julia
 using StravaConnect
-user = setup_user()
+# path is optional, will not save otherwise
+# loads from file if it exists
+user = setup_user("/data/user.json") 
 
-refresh_if_needed!(user)
-activities = get_all_activities(u)
-activity = get_activity(ACTIVITY_ID, u)
+activities = get_activity_list(u)
+
+id = activities.id[end]
+
+activity = get_activity(id, u)
 ```
 
 `get_all_activities` returns `NamedTuple` of:  
