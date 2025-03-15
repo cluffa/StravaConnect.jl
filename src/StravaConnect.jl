@@ -6,11 +6,10 @@ using JSON3
 using Dates
 using JLD2
 using PrecompileTools: @setup_workload, @compile_workload
-using Polyline
 
 include("oauth.jl")
 
-export setup_user, get_activity_list, get_activity, reduce_subdicts!, fill_dicts!, encode_polyline, decode_polyline
+export setup_user, get_activity_list, get_activity, reduce_subdicts!, fill_dicts!
 
 const DATA_DIR = "./data"
 const HIDE = true
