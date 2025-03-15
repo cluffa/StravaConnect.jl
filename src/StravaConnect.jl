@@ -68,6 +68,17 @@ function activity_api(access_token::String, id::Int; dry_run::Bool = false)::HTT
     end
 end
 
+"""
+    reduce_subdicts!(d::AbstractDict) -> AbstractDict
+
+Flatten nested dictionaries by combining keys with underscores.
+
+# Arguments
+- `d::AbstractDict`: Dictionary potentially containing nested dictionaries
+
+# Returns
+- `AbstractDict`: Flattened dictionary
+"""
 function reduce_subdicts!(d::AbstractDict)::AbstractDict
     for key in keys(d)
         if d[key] isa Dict
@@ -95,9 +106,17 @@ function fill_dicts!(dicts::Vector{Dict{Symbol, Any}})
 end
 
 """
-    get_activity_list(u::User; data_dir = DATA_DIR)::NamedTuple
+    get_activity_list(u::User; data_dir::String="./data", dry_run::Bool=false) -> Vector{Dict}
 
-gets all activities and returns NamedTuple, caches to file
+Get list of all activities for a user, with caching.
+
+# Arguments
+- `u::User`: Authorized user struct
+- `data_dir::String`: Directory for caching data (default: "./data")
+- `dry_run::Bool`: Use test data instead of API calls (default: false)
+
+# Returns
+- `Vector{Dict}`: List of activity dictionaries
 """
 function get_activity_list(u::User; data_dir::String = DATA_DIR, dry_run = false)
     isdir(data_dir) || mkdir(data_dir)
@@ -150,9 +169,18 @@ function get_activity_list(u::User; data_dir::String = DATA_DIR, dry_run = false
 end
 
 """
-    get_activity(id, u::User; data_dir = DATA_DIR)::NamedTuple
+    get_activity(id::Int, u::User; data_dir::String="./data", dry_run::Bool=false) -> Dict{Symbol, Any}
 
-gets activity using id, returns NamedTuple of vectors
+Get detailed data for a specific activity.
+
+# Arguments
+- `id::Int`: Activity ID to retrieve
+- `u::User`: Authorized user struct
+- `data_dir::String`: Directory for caching data (default: "./data")
+- `dry_run::Bool`: Use test data instead of API calls (default: false)
+
+# Returns
+- `Dict{Symbol, Any}`: Activity data including streams
 """
 function get_activity(id::Int, u::User; data_dir::String = DATA_DIR, dry_run::Bool = false)::Dict{Symbol, Any}
     isdir(data_dir) || mkdir(data_dir)

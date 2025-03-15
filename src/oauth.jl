@@ -20,9 +20,12 @@ end
 User() = User("", "", 0, 0, Dict{String, Any}())
 
 """
-    authorize!(u::User)::Nothing
+    authorize!(u::User) -> Nothing
 
-authorizes new user `u` using strava login
+Authorize a new user using the Strava OAuth flow.
+
+# Arguments
+- `u::User`: User struct to store authorization information
 """
 function authorize!(u::User)::Nothing
     token_info = oauth_flow()
@@ -40,9 +43,12 @@ function authorize!(u::User)::Nothing
 end
 
 """
-    refresh!(u::User)::Nothing
+    refresh!(u::User) -> Nothing
 
-refreshes user tokens
+Refresh the access token for a user using their refresh token.
+
+# Arguments
+- `u::User`: User struct containing the refresh token
 """
 function refresh!(u::User)::Nothing
     new_token = refresh_token(u.refresh_token)
@@ -58,9 +64,12 @@ function refresh!(u::User)::Nothing
 end
 
 """
-    refresh_if_needed!(u::User)::Nothing
+    refresh_if_needed!(u::User) -> Nothing
 
-refeshes user tokens if they are expired
+Check if the user's token needs refreshing and refresh if expired.
+
+# Arguments
+- `u::User`: User struct to check and potentially refresh
 """
 function refresh_if_needed!(u::User)::Nothing
     if u.expires_at < time()
@@ -71,10 +80,12 @@ function refresh_if_needed!(u::User)::Nothing
 end
 
 """
-    setup_user(token_file::AbstractString = ".tokens", force_auth::Bool = false)::User
+    setup_user() -> User
 
-Sets up user by loading tokens from file or authorizing new user
-Requires STRAVA_CLIENT_ID and STRAVA_CLIENT_SECRET to be set in ENV
+Create and authorize a new user through the OAuth flow.
+
+# Returns
+- `User`: Newly authorized user struct
 """
 function setup_user()::User
     user = User()
@@ -84,6 +95,17 @@ function setup_user()::User
     return user
 end
 
+"""
+    setup_user(file::AbstractString) -> User
+
+Load user from file or create new if file doesn't exist.
+
+# Arguments
+- `file::AbstractString`: Path to JSON file containing user data
+
+# Returns
+- `User`: Loaded or newly created user struct
+"""
 function setup_user(file::AbstractString)::User
     user = setup_user_from_file(file)
 
@@ -117,9 +139,15 @@ function setup_user_from_file(user_file::AbstractString)::User
 end
 
 """
-    generate_authorization_url(redirect_uri::String)
+    generate_authorization_url(redirect_uri::String) -> String
 
 Generate the OAuth authorization URL for Strava.
+
+# Arguments
+- `redirect_uri::String`: URI where Strava will redirect after authorization
+
+# Returns
+- `String`: Complete authorization URL
 """
 function generate_authorization_url(redirect_uri::String)
     params = Dict(
@@ -132,9 +160,15 @@ function generate_authorization_url(redirect_uri::String)
 end
 
 """
-    exchange_code_for_token(code::String)
+    exchange_code_for_token(code::String) -> JSON3.Object
 
-Exchange the authorization code for an access token.
+Exchange authorization code for access token.
+
+# Arguments
+- `code::String`: Authorization code from Strava redirect
+
+# Returns
+- `JSON3.Object`: Token response containing access_token, refresh_token, and expiration
 """
 function exchange_code_for_token(code::String)
     response = HTTP.post(STRAVA_TOKEN_URL, 
@@ -151,9 +185,15 @@ function exchange_code_for_token(code::String)
 end
 
 """
-    refresh_token(refresh_token::String)
+    refresh_token(refresh_token::String) -> JSON3.Object
 
-Get a new access token using a refresh token.
+Get new access token using refresh token.
+
+# Arguments
+- `refresh_token::String`: Valid refresh token
+
+# Returns
+- `JSON3.Object`: Token response containing new access_token and refresh_token
 """
 function refresh_token(refresh_token::String)
     response = HTTP.post(STRAVA_TOKEN_URL,
