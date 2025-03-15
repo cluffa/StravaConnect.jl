@@ -108,19 +108,19 @@ function get_activity_list(u::User; data_dir::String = DATA_DIR, dry_run = false
 
     mtime = 0
     list = T(undef, 0)
-
-    jldopen(data_file, "a+") do io       
-        if haskey(io, "activities") && haskey(io, "mtime")
-            mtime = io["mtime"]
-            append!(list, io["activities"])
+    if !dry_run
+        jldopen(data_file, "a+") do io       
+            if haskey(io, "activities") && haskey(io, "mtime")
+                mtime = io["mtime"]
+                append!(list, io["activities"])
+            end
         end
+
+        @info "$(length(list)) activities loaded from cache, getting activities after $(unix2datetime(mtime))"
     end
 
     n_cache = length(list)
-
     per_page = 200
-
-    @info "$(n_cache) activities loaded from cache, getting activities after $(unix2datetime(mtime))"
 
     page = 1
     while true
@@ -131,8 +131,6 @@ function get_activity_list(u::User; data_dir::String = DATA_DIR, dry_run = false
         if length(data) == 0
             break
         end
-        
-        # reduce_subdicts!.(data)
 
         append!(list, data)
         
@@ -143,9 +141,8 @@ function get_activity_list(u::User; data_dir::String = DATA_DIR, dry_run = false
         page += 1
     end
 
-    @info "$(length(list) - n_cache) new activities loaded, total $(length(list)) activities"
-
     if !dry_run
+        @info "$(length(list) - n_cache) new activities loaded, total $(length(list)) activities"
         jldsave(data_file; activities = list, mtime = Int(floor(time())))
     end
 
