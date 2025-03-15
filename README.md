@@ -10,43 +10,27 @@ STRAVA_CLIENT_SECRET
 ### Examples
 ```julia
 using StravaConnect
-# path is optional, will not save otherwise
-# loads from file if it exists
+# loads/saves to file if path provided
 user = setup_user("/data/user.json") 
 
 activities = get_activity_list(u)
 
-id = activities.id[end]
+id = activities[end][:id]
 
 activity = get_activity(id, u)
-```
 
-`get_all_activities` returns `NamedTuple` of:  
-```julia
-id = Int64[]
-name = String[]
-distance = Float64[]
-distance_mi = Float64[]
-start_date_local = DateTime[]
-elapsed_time = Float64[]
-sport_type = String[]
-```
+# Helper functions
+# flattens subdicts into current dict, useful for DataFrame(Vector{Dict})
+# d[:map][:summary_polyline] becomes d[:map_summary_polyline]
+reduce_subdicts!(Vector{Dict} or Dict)
 
-`get_activity` returns `NamedTuple` of:  
-```julia
-time = Int64[]
-distance = Float64[]
-distance_mi = Float64[]
-latlng = Tuple{Float64, Float64}[]
-altitude = Float64[]
-altitude_ft = Float64[]
-velocity_smooth = Float64[]
-heartrate = Int64[]
-cadence = Int64[]
-watts = Float64[]
-temp = Int64[]
-temp_f = Float64[]
-moving = Bool[]
-grade_smooth = Float64[]
-```  
-only when applicable, otherwise vectors are empty.
+# gives each dict in a vector all keys, useful for DataFrame(Vector{Dict})
+fill_dicts!(Vector{Dict})
+
+# exported from https://github.com/cluffa/Polyline.jl
+# encodes GPS points into Google Polyline encoded string
+encode_polyline(Vector{Tuple{Float, Float}})
+
+# decodes Google Polyline, activities[:map][:summary_polyline], into lat long points
+decode_polyline(Tuple{Float, Float})
+```
