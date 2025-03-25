@@ -1,11 +1,6 @@
 using HTTP
 using JSON3
 
-@assert haskey(ENV, "STRAVA_CLIENT_ID")
-@assert haskey(ENV, "STRAVA_CLIENT_SECRET")
-
-const STRAVA_CLIENT_ID = ENV["STRAVA_CLIENT_ID"]
-const STRAVA_CLIENT_SECRET = ENV["STRAVA_CLIENT_SECRET"]
 const STRAVA_AUTH_URL = "https://www.strava.com/oauth/authorize"
 const STRAVA_TOKEN_URL = "https://www.strava.com/oauth/token"
 
@@ -31,11 +26,11 @@ function authorize!(u::User)::Nothing
     token_info = oauth_flow()
 
     # TODO only save id and other important info from profile
-    u.athlete = token_info.athlete
-    u.access_token = token_info.access_token
-    u.refresh_token = token_info.refresh_token
-    u.expires_at = token_info.expires_at
-    u.expires_in = token_info.expires_in
+    u.athlete = token_info["athlete"]
+    u.access_token = token_info["access_token"]
+    u.refresh_token = token_info["refresh_token"]
+    u.expires_at = token_info["expires_at"]
+    u.expires_in = token_info["expires_in"]
 
     @info "new token expires in $(round(u.expires_in/86400; digits = 1)) days"
 
@@ -53,10 +48,11 @@ Refresh the access token for a user using their refresh token.
 function refresh!(u::User)::Nothing
     new_token = refresh_token(u.refresh_token)
 
-    u.access_token = new_token.access_token
-    u.refresh_token = new_token.refresh_token
-    u.expires_at = new_token.expires_at
-    u.expires_in = new_token.expires_in
+    u.access_token = new_token["access_token"]
+    u.refresh_token = new_token["refresh_token"]
+    u.expires_at = new_token["expires_at"]
+    u.expires_in = new_token["expires_in"]
+    u.athlete = new_token["athlete"]
 
     @info "new token expires in $(round(u.expires_in/86400; digits = 2)) days"
 
@@ -107,9 +103,9 @@ Load user from file or create new if file doesn't exist.
 - `User`: Loaded or newly created user struct
 """
 function setup_user(file::AbstractString)::User
-    user = setup_user_from_file(file)
-
-    if isnothing(user)
+    if isfile(file)
+        user = setup_user_from_file(file)
+    else
         user = setup_user()
         save_user(file, user)
     end
@@ -149,9 +145,9 @@ Generate the OAuth authorization URL for Strava.
 # Returns
 - `String`: Complete authorization URL
 """
-function generate_authorization_url(redirect_uri::String)
+function generate_authorization_url(redirect_uri::String)::String
     params = Dict(
-        "client_id" => STRAVA_CLIENT_ID,
+        "client_id" => ENV["STRAVA_CLIENT_ID"],
         "redirect_uri" => redirect_uri,
         "response_type" => "code",
         "scope" => "activity:read_all,profile:read_all"
@@ -170,18 +166,18 @@ Exchange authorization code for access token.
 # Returns
 - `JSON3.Object`: Token response containing access_token, refresh_token, and expiration
 """
-function exchange_code_for_token(code::String)
+function exchange_code_for_token(code::String)::Dict{String, Any}
     response = HTTP.post(STRAVA_TOKEN_URL, 
         ["Content-Type" => "application/json"],
         JSON3.write(Dict(
-            "client_id" => STRAVA_CLIENT_ID,
-            "client_secret" => STRAVA_CLIENT_SECRET,
+            "client_id" => ENV["STRAVA_CLIENT_ID"],
+            "client_secret" => ENV["STRAVA_CLIENT_SECRET"],
             "code" => code,
             "grant_type" => "authorization_code"
         ))
     )
     
-    return JSON3.read(response.body)
+    return JSON3.read(response.body, Dict{String, Any})
 end
 
 """
@@ -195,22 +191,22 @@ Get new access token using refresh token.
 # Returns
 - `JSON3.Object`: Token response containing new access_token and refresh_token
 """
-function refresh_token(refresh_token::String)
+function refresh_token(refresh_token::String)::Dict{String, Any}
     response = HTTP.post(STRAVA_TOKEN_URL,
         ["Content-Type" => "application/json"],
         JSON3.write(Dict(
-            "client_id" => STRAVA_CLIENT_ID,
-            "client_secret" => STRAVA_CLIENT_SECRET,
+            "client_id" => ENV["STRAVA_CLIENT_ID"],
+            "client_secret" => ENV["STRAVA_CLIENT_SECRET"],
             "refresh_token" => refresh_token,
             "grant_type" => "refresh_token"
         ))
     )
     
-    return JSON3.read(response.body)
+    return JSON3.read(response.body, Dict{String, Any})
 end
 
 # Example usage
-function oauth_flow()
+function oauth_flow()::Dict{String, Any}
     # Generate authorization URL
     redirect_uri = "http://localhost:8000/callback"
     auth_url = generate_authorization_url(redirect_uri)
@@ -222,11 +218,11 @@ function oauth_flow()
 
     # Exchange code for token
     token_info = exchange_code_for_token(code)
-    println("Access token: $(token_info.access_token)")
+    println("Access token: $(token_info["access_token"])")
 
     # Later, when token expires
     # new_token_info = refresh_token(token_info.refresh_token)
-    # println("New access token: $(new_token_info.access_token)")
+    # println("New access token: $(new_token_info["access_token"])")
 
     return token_info
 end

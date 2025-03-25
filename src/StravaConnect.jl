@@ -11,7 +11,8 @@ include("oauth.jl")
 
 export setup_user, get_activity_list, get_activity, reduce_subdicts!, fill_dicts!
 
-const DATA_DIR = "./data"
+const DATA_DIR = get(ENV, "STRAVA_DATA_DIR", tempdir())
+
 const HIDE = true
 const STREAMKEYS = ("time", "distance", "latlng", "altitude", "velocity_smooth", "heartrate", "cadence", "watts", "temp", "moving", "grade_smooth")
 
@@ -20,7 +21,21 @@ const METER_TO_MILE = 0.000621371
 const METER_TO_FEET = 3.28084
 c2f(c::Number)::Number = (c * 9/5) + 32
 
+"""
+    activites_list_api(access_token::String, page::Int, per_page::Int, after::Int; dry_run::Bool = false) -> HTTP.Response
 
+Fetch a paginated list of activities from the Strava API.
+
+# Arguments
+- `access_token::String`: OAuth access token for authentication.
+- `page::Int`: Page number to fetch.
+- `per_page::Int`: Number of activities per page.
+- `after::Int`: Unix timestamp to filter activities after this time.
+- `dry_run::Bool`: If true, returns test data instead of making an API call (default: false).
+
+# Returns
+- `HTTP.Response`: HTTP response containing the activities data.
+"""
 function activites_list_api(access_token::String, page::Int, per_page::Int, after::Int; dry_run::Bool = false)
     if dry_run
         return HTTP.Response(
@@ -44,6 +59,19 @@ function activites_list_api(access_token::String, page::Int, per_page::Int, afte
     end
 end
 
+"""
+    activity_api(access_token::String, id::Int; dry_run::Bool = false) -> HTTP.Response
+
+Fetch detailed data for a specific activity from the Strava API.
+
+# Arguments
+- `access_token::String`: OAuth access token for authentication.
+- `id::Int`: Activity ID to retrieve.
+- `dry_run::Bool`: If true, returns test data instead of making an API call (default: false).
+
+# Returns
+- `HTTP.Response`: HTTP response containing the activity data.
+"""
 function activity_api(access_token::String, id::Int; dry_run::Bool = false)::HTTP.Response
     if dry_run
         return HTTP.Response(
@@ -74,10 +102,10 @@ end
 Flatten nested dictionaries by combining keys with underscores.
 
 # Arguments
-- `d::AbstractDict`: Dictionary potentially containing nested dictionaries
+- `d::AbstractDict`: Dictionary potentially containing nested dictionaries.
 
 # Returns
-- `AbstractDict`: Flattened dictionary
+- `AbstractDict`: Flattened dictionary with nested keys merged into top-level keys.
 """
 function reduce_subdicts!(d::AbstractDict)::AbstractDict
     for key in keys(d)
@@ -90,8 +118,30 @@ function reduce_subdicts!(d::AbstractDict)::AbstractDict
     return d
 end
 
+"""
+    reduce_subdicts!(dicts::Vector{Dict{Symbol, Any}}) -> Vector{Dict{Symbol, Any}}
+
+Apply `reduce_subdicts!` to each dictionary in a vector.
+
+# Arguments
+- `dicts::Vector{Dict{Symbol, Any}}`: Vector of dictionaries to flatten.
+
+# Returns
+- `Vector{Dict{Symbol, Any}}`: Vector of flattened dictionaries.
+"""
 reduce_subdicts!(dicts::Vector{Dict{Symbol, Any}}) = map(reduce_subdicts!, dicts)
 
+"""
+    fill_dicts!(dicts::Vector{Dict{Symbol, Any}}) -> Vector{Dict{Symbol, Any}}
+
+Ensure all dictionaries in a vector have the same keys by filling missing keys with `nothing`.
+
+# Arguments
+- `dicts::Vector{Dict{Symbol, Any}}`: Vector of dictionaries to fill.
+
+# Returns
+- `Vector{Dict{Symbol, Any}}`: Vector of dictionaries with consistent keys.
+"""
 function fill_dicts!(dicts::Vector{Dict{Symbol, Any}})
     all_keys = unique(vcat(collect.(keys.(dicts))...))
     for d in dicts
@@ -106,21 +156,19 @@ function fill_dicts!(dicts::Vector{Dict{Symbol, Any}})
 end
 
 """
-    get_activity_list(u::User; data_dir::String="./data", dry_run::Bool=false) -> Vector{Dict}
+    get_activity_list(u::User; data_dir::String = DATA_DIR, dry_run::Bool = false) -> Vector{Dict}
 
-Get list of all activities for a user, with caching.
+Retrieve a list of all activities for a user, with optional caching.
 
 # Arguments
-- `u::User`: Authorized user struct
-- `data_dir::String`: Directory for caching data (default: "./data")
-- `dry_run::Bool`: Use test data instead of API calls (default: false)
+- `u::User`: Authorized user struct.
+- `data_dir::String`: Directory for caching data (default: `DATA_DIR`).
+- `dry_run::Bool`: If true, uses test data instead of making API calls (default: false).
 
 # Returns
-- `Vector{Dict}`: List of activity dictionaries
+- `Vector{Dict}`: List of activity dictionaries.
 """
 function get_activity_list(u::User; data_dir::String = DATA_DIR, dry_run = false)
-    isdir(data_dir) || mkdir(data_dir)
-
     data_file = joinpath(data_dir, "data.jld2")
 
     T = Vector{Dict{Symbol, Union{Dict{Symbol, Any}, Any}}}
@@ -128,6 +176,10 @@ function get_activity_list(u::User; data_dir::String = DATA_DIR, dry_run = false
     mtime = 0
     list = T(undef, 0)
     if !dry_run
+        if !isdir(data_dir)
+            mkpath(data_dir)
+        end
+
         jldopen(data_file, "a+") do io       
             if haskey(io, "activities") && haskey(io, "mtime")
                 mtime = io["mtime"]
@@ -169,22 +221,20 @@ function get_activity_list(u::User; data_dir::String = DATA_DIR, dry_run = false
 end
 
 """
-    get_activity(id::Int, u::User; data_dir::String="./data", dry_run::Bool=false) -> Dict{Symbol, Any}
+    get_activity(id::Int, u::User; data_dir::String = DATA_DIR, dry_run::Bool = false) -> Dict{Symbol, Any}
 
-Get detailed data for a specific activity.
+Retrieve detailed data for a specific activity, with optional caching.
 
 # Arguments
-- `id::Int`: Activity ID to retrieve
-- `u::User`: Authorized user struct
-- `data_dir::String`: Directory for caching data (default: "./data")
-- `dry_run::Bool`: Use test data instead of API calls (default: false)
+- `id::Int`: Activity ID to retrieve.
+- `u::User`: Authorized user struct.
+- `data_dir::String`: Directory for caching data (default: `DATA_DIR`).
+- `dry_run::Bool`: If true, uses test data instead of making API calls (default: false).
 
 # Returns
-- `Dict{Symbol, Any}`: Activity data including streams
+- `Dict{Symbol, Any}`: Activity data including streams.
 """
 function get_activity(id::Int, u::User; data_dir::String = DATA_DIR, dry_run::Bool = false)::Dict{Symbol, Any}
-    isdir(data_dir) || mkdir(data_dir)
-
     T = Dict{Symbol, Dict{Symbol, Any}}
 
     data_file = joinpath(data_dir, "data.jld2")
@@ -223,11 +273,26 @@ end
         reduce_subdicts!(d)
         fill_dicts!([d, d2])
 
-        get_activity_list(u; dry_run = true)
-        get_activity(1, u; dry_run = true)
+        # get_activity_list(u; dry_run = true)
+        # get_activity(1, u; dry_run = true)
         
         redirect_stdout(real_stdout)
     end
+end
+
+"""
+    clear_data()
+
+Delete all cached data files in the `DATA_DIR`.
+
+# Arguments
+- None.
+
+# Returns
+- Nothing.
+"""
+function clear_data()
+    rm(joinpath(DATA_DIR, "data.jld2"), force = true)
 end
 
 end  # module
