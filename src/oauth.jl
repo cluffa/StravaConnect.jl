@@ -52,7 +52,6 @@ function refresh!(u::User)::Nothing
     u.refresh_token = new_token["refresh_token"]
     u.expires_at = new_token["expires_at"]
     u.expires_in = new_token["expires_in"]
-    u.athlete = new_token["athlete"]
 
     @info "new token expires in $(round(u.expires_in/86400; digits = 2)) days"
 
