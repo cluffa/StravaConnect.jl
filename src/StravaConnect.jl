@@ -7,8 +7,6 @@ using Dates
 using JLD2
 using PrecompileTools: @setup_workload, @compile_workload
 
-include("oauth.jl")
-
 export setup_user, get_activity_list, get_activity, reduce_subdicts!, fill_dicts!
 
 const DATA_DIR = get(ENV, "STRAVA_DATA_DIR", tempdir())
@@ -20,6 +18,8 @@ const STREAMKEYS = ("time", "distance", "latlng", "altitude", "velocity_smooth",
 const METER_TO_MILE = 0.000621371
 const METER_TO_FEET = 3.28084
 c2f(c::Number)::Number = (c * 9/5) + 32
+
+include("oauth.jl")
 
 """
     activites_list_api(access_token::String, page::Int, per_page::Int, after::Int; dry_run::Bool = false) -> HTTP.Response
@@ -36,7 +36,7 @@ Fetch a paginated list of activities from the Strava API.
 # Returns
 - `HTTP.Response`: HTTP response containing the activities data.
 """
-function activites_list_api(access_token::String, page::Int, per_page::Int, after::Int; dry_run::Bool = false)
+function activites_list_api(access_token::String, page::Int, per_page::Int, after::Int; dry_run::Bool = false)::Union{HTTP.Response, Nothing}
     if dry_run
         return HTTP.Response(
             read("./test/activites_list_api.json")
@@ -44,11 +44,12 @@ function activites_list_api(access_token::String, page::Int, per_page::Int, afte
     else 
         resp = HTTP.get(
             "https://www.strava.com/api/v3/athlete/activities?page=$page&per_page=$per_page&after=$after",
-            headers = Dict("Authorization" => "Bearer $(access_token)")
+            headers = Dict("Authorization" => "Bearer $(access_token)"),
+            status_exception = false  # Don't throw an exception for non-200 responses
         )
 
         if resp.status == 429
-            @error "Rate limit exceeded"
+            @warn "Rate limit exceeded, no new activities will be fetched."
             return nothing
         elseif resp.status != 200
             @error "Error getting activities"
@@ -83,11 +84,14 @@ function activity_api(access_token::String, id::Int; dry_run::Bool = false)::HTT
             headers = Dict(
                 "Authorization" => "Bearer $(access_token)",
                 "accept" => "application/json"
-            )
+            ),
+            status_exception = false  # Don't throw an exception for non-200 responses
         )
 
         if response.status == 429;
-            @info "Rate limit exceeded, waiting "
+            @warn "Rate limit exceeded, waiting 5 minutes before retrying."
+            sleep(300)  # Wait for 5 minutes before retrying
+            return activity_api(access_token, id; dry_run)  # retry the request after waiting
         elseif response.status != 200
             @error "Error getting activity"
         end
@@ -196,6 +200,10 @@ function get_activity_list(u::User; data_dir::String = DATA_DIR, dry_run = false
     page = 1
     while true
         resp = activites_list_api(u.access_token, page, per_page, mtime; dry_run)
+
+        if isnothing(resp)
+            break
+        end
 
         data = JSON3.read(resp.body, T)
         

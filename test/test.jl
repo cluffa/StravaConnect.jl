@@ -1,7 +1,7 @@
 using Revise
 using StravaConnect
 
-u = setup_user("user.json");
+u = setup_user();
 
 df = get_activity_list(u)
 

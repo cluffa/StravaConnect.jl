@@ -3,6 +3,7 @@ using JSON3
 
 const STRAVA_AUTH_URL = "https://www.strava.com/oauth/authorize"
 const STRAVA_TOKEN_URL = "https://www.strava.com/oauth/token"
+# const DATA_DIR = get(ENV, "STRAVA_DATA_DIR", tempdir()) # already defined in StravaConnect.jl
 
 mutable struct User
     access_token::String
@@ -24,17 +25,21 @@ Authorize a new user using the Strava OAuth flow.
 """
 function authorize!(u::User)::Nothing
     token_info = oauth_flow()
+    update_user!(u, token_info)
+    return nothing
+end
 
-    # TODO only save id and other important info from profile
-    u.athlete = token_info["athlete"]
+function update_user!(u::User, token_info::Dict{String, Any})::Nothing
+    if haskey(token_info, "athlete")
+        u.athlete = token_info["athlete"]
+    end
+
     u.access_token = token_info["access_token"]
     u.refresh_token = token_info["refresh_token"]
     u.expires_at = token_info["expires_at"]
     u.expires_in = token_info["expires_in"]
 
     @info "new token expires in $(round(u.expires_in/86400; digits = 1)) days"
-
-    return nothing
 end
 
 """
@@ -47,14 +52,7 @@ Refresh the access token for a user using their refresh token.
 """
 function refresh!(u::User)::Nothing
     new_token = refresh_token(u.refresh_token)
-
-    u.access_token = new_token["access_token"]
-    u.refresh_token = new_token["refresh_token"]
-    u.expires_at = new_token["expires_at"]
-    u.expires_in = new_token["expires_in"]
-
-    @info "new token expires in $(round(u.expires_in/86400; digits = 2)) days"
-
+    update_user!(u, new_token)
     return nothing
 end
 
@@ -75,45 +73,44 @@ function refresh_if_needed!(u::User)::Nothing
 end
 
 """
-    setup_user() -> User
+    setup_user(; force_reauthenticate::Bool = false) -> User
 
-Create and authorize a new user through the OAuth flow.
-
-# Returns
-- `User`: Newly authorized user struct
-"""
-function setup_user()::User
-    user = User()
-
-    authorize!(user)
-    
-    return user
-end
-
-"""
-    setup_user(file::AbstractString) -> User
-
-Load user from file or create new if file doesn't exist.
+Load user from `DATA_DIR` or create a new user if no file exists or if reauthentication is forced.
 
 # Arguments
-- `file::AbstractString`: Path to JSON file containing user data
+- `force_reauthenticate::Bool`: If true, forces reauthentication even if a user file exists (default: false).
 
 # Returns
 - `User`: Loaded or newly created user struct
 """
-function setup_user(file::AbstractString)::User
-    if isfile(file)
-        user = setup_user_from_file(file)
+function setup_user(; force_reauthenticate::Bool = false)::User
+    user_file = joinpath(DATA_DIR, "user.json")
+    if !force_reauthenticate && isfile(user_file)
+        user = setup_user_from_file(user_file)
     else
-        user = setup_user()
-        save_user(file, user)
+        user = User()
+        authorize!(user)
+        save_user(user_file, user)
     end
 
     return user
 end
 
+"""
+    save_user(user_file::AbstractString, u::User) -> Nothing
+
+Save user data to a JSON file.
+
+# Arguments
+- `user_file::AbstractString`: Path to JSON file
+- `u::User`: User struct to save
+"""
 function save_user(user_file::AbstractString, u::User)::Nothing
     @assert lowercase(split(user_file, ".")[end]) == "json" "User file must be JSON format"
+
+    if !isdir(dirname(user_file))
+        mkpath(dirname(user_file))
+    end
 
     open(user_file, "w") do io
         JSON3.pretty(io, u)
@@ -122,6 +119,17 @@ function save_user(user_file::AbstractString, u::User)::Nothing
     return nothing
 end
 
+"""
+    setup_user_from_file(user_file::AbstractString) -> User
+
+Load user from a JSON file and refresh token if needed.
+
+# Arguments
+- `user_file::AbstractString`: Path to JSON file containing user data
+
+# Returns
+- `User`: Loaded user struct
+"""
 function setup_user_from_file(user_file::AbstractString)::User
     @assert lowercase(split(user_file, ".")[end]) == "json" "User file must be JSON format"
     user = JSON3.read(user_file, User)
