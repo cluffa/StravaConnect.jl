@@ -7,7 +7,7 @@ using Dates
 using JLD2
 using PrecompileTools: @setup_workload, @compile_workload
 
-export setup_user, get_activity_list, get_activity, reduce_subdicts!, fill_dicts!
+export setup_user, get_activity_list, get_activity, reduce_subdicts!, fill_dicts!, refresh!, refresh_if_needed!
 
 const DATA_DIR = get(ENV, "STRAVA_DATA_DIR", tempdir())
 
@@ -173,6 +173,7 @@ Retrieve a list of all activities for a user, with optional caching.
 - `Vector{Dict}`: List of activity dictionaries.
 """
 function get_activity_list(u::User; data_dir::String = DATA_DIR, dry_run = false)
+    refresh_if_needed!(u)
     data_file = joinpath(data_dir, "data.jld2")
 
     T = Vector{Dict{Symbol, Union{Dict{Symbol, Any}, Any}}}
@@ -243,6 +244,7 @@ Retrieve detailed data for a specific activity, with optional caching.
 - `Dict{Symbol, Any}`: Activity data including streams.
 """
 function get_activity(id::Int, u::User; data_dir::String = DATA_DIR, dry_run::Bool = false)::Dict{Symbol, Any}
+    refresh_if_needed!(u)
     T = Dict{Symbol, Dict{Symbol, Any}}
 
     data_file = joinpath(data_dir, "data.jld2")
