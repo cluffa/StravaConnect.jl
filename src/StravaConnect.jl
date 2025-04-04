@@ -248,31 +248,29 @@ function get_activity(id::Int, u::User; data_dir::String = DATA_DIR, dry_run::Bo
     T = Dict{Symbol, Dict{Symbol, Any}}
 
     data_file = joinpath(data_dir, "data.jld2")
+
+    activity = Dict{Symbol, Any}()
     
-    jldopen(data_file, "a+") do io
-        if haskey(io, "activity_$id")
-            activity = io["activity_$id"]
+    jldopen(data_file, "a+") do f
+        if haskey(f, "activity_$id")
+            activity = f["activity_$id"]
 
             if verbose
                 @info "Loaded activity $id from cache"
             end
+        else
+            response = activity_api(u.access_token, id)
+            activity = JSON3.read(response.body, T)
 
-            return activity
+            if verbose
+                @info "Fetched activity $id from API"
+            end
+            
+            f["activity_$id"] = activity
         end
-    
-        response = activity_api(u.access_token, id; dry_run)
-        activity = JSON3.read(response.body, T)
-
-        if verbose
-            @info "Fetched activity $id from API"
-        end
-        
-        if !dry_run
-            io["activity_$id"] = activity
-        end
-
-        activity
     end
+
+    return activity
 end
 
 @setup_workload begin
