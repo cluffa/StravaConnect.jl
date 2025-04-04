@@ -223,7 +223,17 @@ function get_activity_list(u::User; data_dir::String = DATA_DIR, dry_run = false
 
     if !dry_run
         @info "$(length(list) - n_cache) new activities loaded, total $(length(list)) activities"
-        jldsave(data_file; activities = list, mtime = Int(floor(time())))
+        jldopen(data_file, "a+") do io
+            # only append new activities
+            if haskey(io, "activities")
+                append!(io["activities"], list[n_cache + 1:end])  # append only the new activities to the existing list
+            else
+                io["activities"] = list
+            end
+
+            delete!(io, "mtime")  # ensure we remove the old mtime if it exists
+            io["mtime"] = Int(floor(time()))
+        end
     end
 
     return list
@@ -252,9 +262,10 @@ function get_activity(id::Int, u::User; data_dir::String = DATA_DIR, dry_run::Bo
     activity = Dict{Symbol, Any}()
     
     jldopen(data_file, "a+") do f
-        if haskey(f, "activity_$id")
-            activity = f["activity_$id"]
+        @show keys(f)
 
+        if haskey(f, "activity/$id")
+            activity = f["activity/$id"]
             if verbose
                 @info "Loaded activity $id from cache"
             end
@@ -262,11 +273,11 @@ function get_activity(id::Int, u::User; data_dir::String = DATA_DIR, dry_run::Bo
             response = activity_api(u.access_token, id)
             activity = JSON3.read(response.body, T)
 
+            f["activity/$id"] = activity
+
             if verbose
                 @info "Fetched activity $id from API"
             end
-            
-            f["activity_$id"] = activity
         end
     end
 
