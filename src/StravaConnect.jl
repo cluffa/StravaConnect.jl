@@ -243,7 +243,7 @@ Retrieve detailed data for a specific activity, with optional caching.
 # Returns
 - `Dict{Symbol, Any}`: Activity data including streams.
 """
-function get_activity(id::Int, u::User; data_dir::String = DATA_DIR, dry_run::Bool = false)::Dict{Symbol, Any}
+function get_activity(id::Int, u::User; data_dir::String = DATA_DIR, dry_run::Bool = false, verbose::Bool = false)::Dict{Symbol, Any}
     refresh_if_needed!(u)
     T = Dict{Symbol, Dict{Symbol, Any}}
 
@@ -252,11 +252,20 @@ function get_activity(id::Int, u::User; data_dir::String = DATA_DIR, dry_run::Bo
     jldopen(data_file, "a+") do io
         if haskey(io, "activity_$id")
             activity = io["activity_$id"]
+
+            if verbose
+                @info "Loaded activity $id from cache"
+            end
+
             return activity
         end
     
         response = activity_api(u.access_token, id; dry_run)
         activity = JSON3.read(response.body, T)
+
+        if verbose
+            @info "Fetched activity $id from API"
+        end
         
         if !dry_run
             io["activity_$id"] = activity
