@@ -7,7 +7,7 @@ using Dates
 using JLD2
 using PrecompileTools: @setup_workload, @compile_workload
 
-export setup_user, get_activity_list, get_activity, reduce_subdicts!, fill_dicts!, refresh!, refresh_if_needed!
+export setup_user, get_activity_list, get_activity, reduce_subdicts!, fill_dicts!
 
 const DATA_DIR = get(ENV, "STRAVA_DATA_DIR", tempdir())
 
