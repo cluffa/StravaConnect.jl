@@ -262,8 +262,6 @@ function get_activity(id::Int, u::User; data_dir::String = DATA_DIR, dry_run::Bo
     activity = Dict{Symbol, Any}()
     
     jldopen(data_file, "a+") do f
-        @show keys(f)
-
         if haskey(f, "activity/$id")
             activity = f["activity/$id"]
             if verbose
