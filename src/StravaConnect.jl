@@ -7,7 +7,7 @@ using Dates
 using JLD2
 using PrecompileTools: @setup_workload, @compile_workload
 
-export setup_user, get_activity_list, get_activity, reduce_subdicts!, fill_dicts!
+export setup_user, get_activity_list, get_activity, reduce_subdicts!, fill_dicts!, get_cached_activity_list, get_all_cached_activity_ids
 
 const DATA_DIR = get(ENV, "STRAVA_DATA_DIR", tempdir())
 
@@ -93,8 +93,6 @@ function activity_api(u::User, id::Int; dry_run::Bool = false)::HTTP.Response
             sleep(300)  # Wait for 5 minutes before retrying
             refresh_if_needed!(u)  # Ensure the token is still valid before retrying
             return activity_api(u, id; dry_run)  # retry the request after waiting
-        elseif response.status != 200
-            @error "Error getting activity"
         end
 
         return response
@@ -241,6 +239,30 @@ function get_activity_list(u::User; data_dir::String = DATA_DIR, dry_run = false
 end
 
 """
+    get_cached_activity_list(data_dir::String = DATA_DIR)
+
+TBW
+"""
+function get_cached_activity_list(data_dir::String = DATA_DIR)::Vector{Dict{Symbol, Any}}
+    if !isdir(data_dir)
+        @warn "Data directory $data_dir does not exist."
+        return Vector{Dict{Symbol, Any}}()
+    elseif !isfile(joinpath(data_dir, "data.jld2"))
+        @warn "No cached data found in $data_dir."
+        return Vector{Dict{Symbol, Any}}()
+    end
+
+    data_file = joinpath(data_dir, "data.jld2")
+    file = jldopen(data_file, "r") 
+    out = get(file, "activities", Vector{Dict{Symbol, Any}}())  # return empty vector if key doesn't exist
+    @info "Loaded cached activity list from $data_file with $(length(out)) activities."
+    close(file)
+    return out
+end
+
+
+
+"""
     get_activity(id::Int, u::User; data_dir::String = DATA_DIR, dry_run::Bool = false) -> Dict{Symbol, Any}
 
 Retrieve detailed data for a specific activity, with optional caching.
@@ -270,18 +292,54 @@ function get_activity(id::Int, u::User; data_dir::String = DATA_DIR, dry_run::Bo
             end
         else
             response = activity_api(u, id)
-            activity = JSON3.read(response.body, T)
+            if response.status == 200
+                activity = JSON3.read(response.body, T)
+                f["activity/$id"] = activity
 
-            f["activity/$id"] = activity
-
-            if verbose
-                @info "Fetched activity $id from API"
+                if verbose
+                    @info "Fetched activity $id from API"
+                end
+            elseif  response.status != 200
+                @warn "Error getting activity $id: $(response.status) $(response.body)"
+                return Dict{Symbol, Any}()  # return an empty dict if the request failed
             end
         end
     end
 
     return activity
 end
+
+"""
+    get_all_cached_activity_ids(data_dir::String = DATA_DIR)
+
+TBW
+"""
+function get_all_cached_activity_ids(data_dir::String = DATA_DIR)::Vector{Int}
+    if !isdir(data_dir)
+        @warn "Data directory $data_dir does not exist."
+        return Vector{Dict{Symbol, Any}}()
+    elseif !isfile(joinpath(data_dir, "data.jld2"))
+        @warn "No cached data found in $data_dir."
+        return Vector{Dict{Symbol, Any}}()
+    end
+
+    data_file = joinpath(data_dir, "data.jld2")
+    file = jldopen(data_file, "r")
+
+    if !haskey(file, "activity")
+        @warn "No activities found in cache."
+        close(file)
+        return Vector{Int}()
+    end
+
+    out = parse.(Int, keys(file["activity"]))
+    close(file)
+
+    @info "Loaded $(length(out)) cached activity IDs from $data_file."
+    
+    return out
+end
+
 
 @setup_workload begin
     # Putting some things in `@setup_workload` instead of `@compile_workload` can reduce the size of the
