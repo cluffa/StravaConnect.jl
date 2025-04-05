@@ -10,7 +10,9 @@ fill_dicts!(df)
 
 # DataFrame(df)
 
-act = [get_activity(x[:id], u; verbose = true) for x in df[end-2:end]]
+samples = [first(df), rand(df), rand(df), last(df)] # Sample a few random activities for testing
+
+act = [get_activity(x[:id], u; verbose = true) for x in samples]
 
 reduce_subdicts!(act)
 fill_dicts!(act)

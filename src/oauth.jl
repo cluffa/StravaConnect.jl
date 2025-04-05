@@ -65,7 +65,7 @@ Check if the user's token needs refreshing and refresh if expired.
 - `u::User`: User struct to check and potentially refresh
 """
 function refresh_if_needed!(u::User)::Nothing
-    if u.expires_at < time()
+    if u.expires_at - time() <= 60
         refresh!(u)
     end
 

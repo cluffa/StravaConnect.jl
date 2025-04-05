@@ -22,12 +22,12 @@ c2f(c::Number)::Number = (c * 9/5) + 32
 include("oauth.jl")
 
 """
-    activites_list_api(access_token::String, page::Int, per_page::Int, after::Int; dry_run::Bool = false) -> HTTP.Response
+    activites_list_api(u::User, page::Int, per_page::Int, after::Int; dry_run::Bool = false) -> HTTP.Response
 
 Fetch a paginated list of activities from the Strava API.
 
 # Arguments
-- `access_token::String`: OAuth access token for authentication.
+- `u::User`: Authorized user struct.
 - `page::Int`: Page number to fetch.
 - `per_page::Int`: Number of activities per page.
 - `after::Int`: Unix timestamp to filter activities after this time.
@@ -36,7 +36,7 @@ Fetch a paginated list of activities from the Strava API.
 # Returns
 - `HTTP.Response`: HTTP response containing the activities data.
 """
-function activites_list_api(access_token::String, page::Int, per_page::Int, after::Int; dry_run::Bool = false)::Union{HTTP.Response, Nothing}
+function activites_list_api(u::User, page::Int, per_page::Int, after::Int; dry_run::Bool = false)::Union{HTTP.Response, Nothing}
     if dry_run
         return HTTP.Response(
             read("./test/activites_list_api.json")
@@ -44,7 +44,7 @@ function activites_list_api(access_token::String, page::Int, per_page::Int, afte
     else 
         resp = HTTP.get(
             "https://www.strava.com/api/v3/athlete/activities?page=$page&per_page=$per_page&after=$after",
-            headers = Dict("Authorization" => "Bearer $(access_token)"),
+            headers = Dict("Authorization" => "Bearer $(u.access_token)"),
             status_exception = false  # Don't throw an exception for non-200 responses
         )
 
@@ -61,19 +61,19 @@ function activites_list_api(access_token::String, page::Int, per_page::Int, afte
 end
 
 """
-    activity_api(access_token::String, id::Int; dry_run::Bool = false) -> HTTP.Response
+    activity_api(u::User, id::Int; dry_run::Bool = false) -> HTTP.Response
 
 Fetch detailed data for a specific activity from the Strava API.
 
 # Arguments
-- `access_token::String`: OAuth access token for authentication.
+- `u::User`: Authorized user struct.
 - `id::Int`: Activity ID to retrieve.
 - `dry_run::Bool`: If true, returns test data instead of making an API call (default: false).
 
 # Returns
 - `HTTP.Response`: HTTP response containing the activity data.
 """
-function activity_api(access_token::String, id::Int; dry_run::Bool = false)::HTTP.Response
+function activity_api(u::User, id::Int; dry_run::Bool = false)::HTTP.Response
     if dry_run
         return HTTP.Response(
             read("./test/activity_api.json")
@@ -82,7 +82,7 @@ function activity_api(access_token::String, id::Int; dry_run::Bool = false)::HTT
         response = HTTP.get(
             "https://www.strava.com/api/v3/activities/$id/streams?keys=$(join(STREAMKEYS, ","))&key_by_type=true",
             headers = Dict(
-                "Authorization" => "Bearer $(access_token)",
+                "Authorization" => "Bearer $(u.access_token)",
                 "accept" => "application/json"
             ),
             status_exception = false  # Don't throw an exception for non-200 responses
@@ -91,7 +91,8 @@ function activity_api(access_token::String, id::Int; dry_run::Bool = false)::HTT
         if response.status == 429;
             @warn "Rate limit exceeded, waiting 5 minutes before retrying."
             sleep(300)  # Wait for 5 minutes before retrying
-            return activity_api(access_token, id; dry_run)  # retry the request after waiting
+            refresh_if_needed!(u)  # Ensure the token is still valid before retrying
+            return activity_api(u, id; dry_run)  # retry the request after waiting
         elseif response.status != 200
             @error "Error getting activity"
         end
@@ -200,7 +201,7 @@ function get_activity_list(u::User; data_dir::String = DATA_DIR, dry_run = false
 
     page = 1
     while true
-        resp = activites_list_api(u.access_token, page, per_page, mtime; dry_run)
+        resp = activites_list_api(u, page, per_page, mtime; dry_run)
 
         if isnothing(resp)
             break
@@ -268,7 +269,7 @@ function get_activity(id::Int, u::User; data_dir::String = DATA_DIR, dry_run::Bo
                 @info "Loaded activity $id from cache"
             end
         else
-            response = activity_api(u.access_token, id)
+            response = activity_api(u, id)
             activity = JSON3.read(response.body, T)
 
             f["activity/$id"] = activity
