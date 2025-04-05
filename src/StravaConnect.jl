@@ -7,7 +7,7 @@ using Dates
 using JLD2
 using PrecompileTools: @setup_workload, @compile_workload
 
-export setup_user, get_activity_list, get_activity, reduce_subdicts!, fill_dicts!, get_cached_activity_list, get_all_cached_activity_ids
+export setup_user, get_activity_list, get_activity, reduce_subdicts!, fill_dicts!, get_cached_activity_list, get_cached_activity_ids
 
 const DATA_DIR = get(ENV, "STRAVA_DATA_DIR", tempdir())
 
@@ -310,11 +310,11 @@ function get_activity(id::Int, u::User; data_dir::String = DATA_DIR, dry_run::Bo
 end
 
 """
-    get_all_cached_activity_ids(data_dir::String = DATA_DIR)
+    get_cached_activity_ids(data_dir::String = DATA_DIR)
 
 TBW
 """
-function get_all_cached_activity_ids(data_dir::String = DATA_DIR)::Vector{Int}
+function get_cached_activity_ids(data_dir::String = DATA_DIR)::Vector{Int}
     if !isdir(data_dir)
         @warn "Data directory $data_dir does not exist."
         return Vector{Dict{Symbol, Any}}()
