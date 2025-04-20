@@ -36,7 +36,7 @@ Fetch a paginated list of activities from the Strava API.
 # Returns
 - `HTTP.Response`: HTTP response containing the activities data.
 """
-function activites_list_api(u::User, page::Int, per_page::Int, after::Int; dry_run::Bool = false)::Union{HTTP.Response, Nothing}
+function activities_list_api(u::User, page::Int, per_page::Int, after::Int; dry_run::Bool = false)::Union{HTTP.Response, Nothing}
     if dry_run
         return HTTP.Response(
             read("./test/activites_list_api.json")
@@ -199,7 +199,7 @@ function get_activity_list(u::User; data_dir::String = DATA_DIR, dry_run = false
 
     page = 1
     while true
-        resp = activites_list_api(u, page, per_page, mtime; dry_run)
+        resp = activities_list_api(u, page, per_page, mtime; dry_run)
 
         if isnothing(resp)
             break
