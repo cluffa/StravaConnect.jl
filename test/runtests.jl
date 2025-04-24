@@ -1,20 +1,14 @@
 using StravaConnect
-# using DataFrames
 
-u = setup_user();
+get_or_setup_user();
 
-df = get_activity_list(u)
+list = get_activity_list() .|> reduce_subdicts! |> fill_dicts!;
 
-reduce_subdicts!(df)
-fill_dicts!(df)
+id = list[end][:id]
+id = get_cached_activity_ids()[1]
 
-# DataFrame(df)
+get_activity(id) 
 
-samples = [first(df), rand(df), rand(df), last(df)] # Sample a few random activities for testing
+get_cached_activity(id)
 
-act = [get_activity(x[:id], u; verbose = true) for x in samples]
-
-reduce_subdicts!(act)
-fill_dicts!(act)
-
-# DataFrame(act[1])
+get_cached_activity_stream(id, :latlng)

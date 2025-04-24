@@ -233,3 +233,28 @@ function oauth_flow()::Dict{String, Any}
 
     return token_info
 end
+
+# Module-level cached user (for internal use)
+const _CACHED_USER = Ref{Union{User, Nothing}}(nothing)
+
+"""
+    get_or_setup_user(; force_reauthenticate::Bool = false) -> User
+
+Get the cached user if available, otherwise set up a new user (from file or OAuth).
+
+This function allows StravaConnect to be used without explicitly managing a User variable. It will load the user from disk or create a new one if needed, and cache it for future use.
+
+# Arguments
+- `force_reauthenticate::Bool`: If true, forces reauthentication (default: false).
+
+# Returns
+- `User`: Loaded or newly created user struct
+"""
+function get_or_setup_user(; force_reauthenticate::Bool = false)::User
+    if _CACHED_USER[] !== nothing && !force_reauthenticate
+        return _CACHED_USER[]
+    end
+    user = setup_user(; force_reauthenticate=force_reauthenticate)
+    _CACHED_USER[] = user
+    return user
+end
