@@ -57,18 +57,22 @@ function activities_list_api(u::User, page::Int, per_page::Int, after::Int)::Uni
 end
 
 """
-    activity_api(u::User, id::Int) -> HTTP.Response
+    activity_api(u::User, id::Int; wait_on_rate_limit::Bool = true) -> HTTP.Response
 
 Fetch detailed data for a specific activity from the Strava API.
 
 # Arguments
 - `u::User`: Authorized user struct.
 - `id::Int`: Activity ID to retrieve.
+- `wait_on_rate_limit::Bool`: If true, waits and retries when rate limit is exceeded (default: true). If false, throws an error on rate limit.
 
 # Returns
 - `HTTP.Response`: HTTP response containing the activity data.
+
+# Throws
+- `ErrorException` if rate limit is exceeded and `wait_on_rate_limit` is false.
 """
-function activity_api(u::User, id::Int)::HTTP.Response
+function activity_api(u::User, id::Int; wait_on_rate_limit::Bool = true)::HTTP.Response
     response = HTTP.get(
         "https://www.strava.com/api/v3/activities/$id/streams?keys=$(join(STREAMKEYS, ","))&key_by_type=true",
         headers = Dict(
@@ -79,10 +83,14 @@ function activity_api(u::User, id::Int)::HTTP.Response
     )
 
     if response.status == 429
-        @warn "Rate limit exceeded, waiting 5 minutes before retrying."
-        sleep(300)  # Wait for 5 minutes before retrying
-        refresh_if_needed!(u)  # Ensure the token is still valid before retrying
-        return activity_api(u, id)  # retry the request after waiting
+        if wait_on_rate_limit
+            @warn "Rate limit exceeded, waiting 5 minutes before retrying."
+            sleep(300)  # Wait for 5 minutes before retrying
+            refresh_if_needed!(u)  # Ensure the token is still valid before retrying
+            return activity_api(u, id; wait_on_rate_limit=wait_on_rate_limit)  # retry the request after waiting
+        else
+            error("Rate limit exceeded and wait_on_rate_limit is false. Aborting request.")
+        end
     end
 
     return response
@@ -270,7 +278,7 @@ function get_activity_list(; data_dir::String = DATA_DIR, force_update::Bool = f
 end
 
 """
-    get_activity(id::Int; data_dir::String = DATA_DIR, force_update::Bool = false, verbose::Bool = false) -> Dict{Symbol, Any}
+    get_activity(id::Int; data_dir::String = DATA_DIR, force_update::Bool = false, verbose::Bool = false, wait_on_rate_limit::Bool = true) -> Dict{Symbol, Any}
 
 Retrieve detailed data for a specific activity for the current user, with optional caching.
 
@@ -281,17 +289,18 @@ This version does not require a `User` argument; the user is loaded or created a
 - `data_dir::String`: Directory for caching data (default: `DATA_DIR`).
 - `force_update::Bool`: If true, always fetches from the API and updates the cache (default: false).
 - `verbose::Bool`: If true, prints info messages (default: false).
+- `wait_on_rate_limit::Bool`: If true, waits and retries when rate limit is exceeded (default: true). If false, throws an error on rate limit.
 
 # Returns
 - `Dict{Symbol, Any}`: Activity data including streams.
 """
-function get_activity(id::Int; data_dir::String = DATA_DIR, force_update::Bool = false, verbose::Bool = false)::Dict{Symbol, Any}
+function get_activity(id::Int; data_dir::String = DATA_DIR, force_update::Bool = false, verbose::Bool = false, wait_on_rate_limit::Bool = true)::Dict{Symbol, Any}
     u = get_or_setup_user()
-    return get_activity(id, u; data_dir=data_dir, force_update=force_update, verbose=verbose)
+    return get_activity(id, u; data_dir=data_dir, force_update=force_update, verbose=verbose, wait_on_rate_limit=wait_on_rate_limit)
 end
 
 """
-    get_activity(id::Int, u::User; data_dir::String = DATA_DIR, force_update::Bool = false, verbose::Bool = false) -> Dict{Symbol, Any}
+    get_activity(id::Int, u::User; data_dir::String = DATA_DIR, force_update::Bool = false, verbose::Bool = false, wait_on_rate_limit::Bool = true) -> Dict{Symbol, Any}
 
 Retrieve detailed data for a specific activity, with optional caching.
 
@@ -301,13 +310,14 @@ Retrieve detailed data for a specific activity, with optional caching.
 - `data_dir::String`: Directory for caching data (default: `DATA_DIR`).
 - `force_update::Bool`: If true, always fetches from the API and updates the cache (default: false).
 - `verbose::Bool`: If true, prints info messages (default: false).
+- `wait_on_rate_limit::Bool`: If true, waits and retries when rate limit is exceeded (default: true). If false, throws an error on rate limit.
 
 # Returns
 - `Dict{Symbol, Any}`: Activity data including streams.
 
 See also: [`get_activity(id; ...)`](@ref) for a version that does not require a `User` argument.
 """
-function get_activity(id::Int, u::User; data_dir::String = DATA_DIR, force_update::Bool = false, verbose::Bool = false)::Dict{Symbol, Any}
+function get_activity(id::Int, u::User; data_dir::String = DATA_DIR, force_update::Bool = false, verbose::Bool = false, wait_on_rate_limit::Bool = true)::Dict{Symbol, Any}
     refresh_if_needed!(u)
     T = Dict{Symbol, Dict{Symbol, Any}}
 
@@ -328,7 +338,7 @@ function get_activity(id::Int, u::User; data_dir::String = DATA_DIR, force_updat
                 @info "Loaded activity $id from cache"
             end
         else
-            response = activity_api(u, id)
+            response = activity_api(u, id; wait_on_rate_limit=wait_on_rate_limit)
             if response.status == 200
                 activity = JSON3.read(response.body, T)
 
