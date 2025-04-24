@@ -1,6 +1,8 @@
 # StravaConnect.jl  
 ## WIP Functionality may change without notice
 
+This is for personal use only and I do not plan on supporting it.
+
 Set these environment variables
 ```
 STRAVA_CLIENT_ID
@@ -26,11 +28,4 @@ reduce_subdicts!(Vector{Dict} or Dict)
 
 # gives each dict in a vector all keys, useful for DataFrame(Vector{Dict})
 fill_dicts!(Vector{Dict})
-
-# Install https://github.com/cluffa/Polyline.jl
-# decodes Google Polyline, activities[:map][:summary_polyline], into lat long points
-decode_polyline(Tuple{Float, Float})
-
-# encodes GPS points into Google Polyline encoded string
-encode_polyline(Vector{Tuple{Float, Float}})
 ```
