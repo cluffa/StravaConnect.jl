@@ -11,52 +11,69 @@ meter_to_mile(x::Real)::Real = x / 1609.34
 mile_to_meter(x::Real)::Real = x * 1609.34
 
 """
-    calculate_fastest_split(activity_data::Dict, split_distance_meters::Float64) -> Int
+    calculate_fastest_split(time_data::Vector{Int}, distance_data::Vector{Float64}, target_distance::Float64) -> Union{Int, Missing}
 
-Calculates the fastest split time in seconds for a given distance.
+Calculates the fastest split time in seconds for a given distance in meters.
 
 # Arguments
-- `activity_data::Dict`: A dictionary containing activity streams, specifically `:time_data` (Vector{Int}) and `:distance_data` (Vector{Float64}).
-- `split_distance_meters::Float64`: The desired distance for the split in meters.
+- `time_data::Vector{Int}`: Vector of timestamps in seconds.
+- `distance_data::Vector{Float64}`: Vector of distances in meters.
+- `target_distance::Float64`: The desired distance for the split in meters.
 
 # Returns
-- `Int`: The fastest split time in seconds for the specified distance. Returns `typemax(Int)` if no split of that distance is found.
+- `Union{Int, Missing}`: The fastest split time in seconds for the specified distance. Returns `missing` if no split of that distance is found.
 """
-function calculate_fastest_split(act, distance::Float64=1.0; in_miles=true)
-    if in_miles
-        split_distance_meters = mile_to_meter(distance) # Convert miles to meters
-    else
-        split_distance_meters = distance # Already in meters
+function calculate_fastest_split(time_data::Vector{Int}, distance_data::Vector{Float64}, target_distance::Float64)::Union{Int, Missing}
+    n = length(time_data) # Assuming time and distance data have the same length
+    # Early exit if data is empty or target distance is non-positive
+    if n == 0 || target_distance <= 0.0
+        return missing
     end
 
-    # calculates fastest split for a given distance
     i = 1 # start index
     j = 1 # end index
-    distance_data = act[:distance_data]
-    time_data = act[:time_data]
-    n = length(time_data) # Assuming time and distance data have the same length
     fastest_split = typemax(Int)
-    while j <= n && i <= n
+    min_split_found = false # Flag to track if any valid split was found
+
+    @inbounds while j <= n && i <= n
         current_distance = distance_data[j] - distance_data[i]
 
-        if current_distance >= split_distance_meters
+        if current_distance >= target_distance
+            # Potential split found
             split_time = time_data[j] - time_data[i]
             if split_time < fastest_split
                 fastest_split = split_time
+                min_split_found = true
             end
+            # Try to shorten the window from the left
             i += 1
+            # Ensure i doesn't skip past j unnecessarily after incrementing
+            if i > j && j <= n
+                 j = i # Reset j if i overtook it
+            end
         else
+            # Expand the window to the right
             j += 1
         end
-        if i > j && j <= n
-            j = i
-        end
     end
-    if fastest_split == typemax(Int)
+
+    return min_split_found ? fastest_split : missing
+end
+
+# Overload for convenience with miles conversion
+function calculate_fastest_split(act::Dict, distance::Float64=1.0; in_miles=true)::Union{Int, Missing}
+    # Check if required data exists
+    if !haskey(act, :time_data) || !haskey(act, :distance_data) || isempty(act[:time_data]) || isempty(act[:distance_data])
         return missing
     end
-    return fastest_split
+
+    target_distance_meters = in_miles ? mile_to_meter(distance) : distance
+    time_data = act[:time_data]::Vector{Int}
+    distance_data = act[:distance_data]::Vector{Float64}
+
+    return calculate_fastest_split(time_data, distance_data, target_distance_meters)
 end
+
 
 get_or_setup_user();
 
@@ -103,19 +120,70 @@ res = 0.5
 rng = vcat(race_distances, 1:res:floor_to_factor(max_distance, res))
 sort!(rng)
 unique!(rng)
+target_distances_meters = mile_to_meter.(rng) # Pre-calculate target distances in meters
 
 paces = fill!(Matrix{Union{Missing, Float64}}(undef, length(rng), length(list)), missing)
-times = fill!(Matrix{Union{Missing, Float64}}(undef, length(rng), length(list)), missing)
+times = fill!(Matrix{Union{Missing, Int}}(undef, length(rng), length(list)), missing) # Use Int for time
 
 ids = getindex.(list, :id)
 
-@time @inbounds Threads.@threads for (i, id) in enumerate(ids) |> collect
+@time @inbounds Threads.@threads for (col_idx, id) in enumerate(ids) |> collect
     act = actDict[id]
-    if haskey(act, :time_data) && haskey(act, :distance_data)
-        times[:, i] .= [(calculate_fastest_split(act, d)/60) for d in rng]
-        paces[:, i] .= times[:, i] ./ rng
+    # Check for key existence and non-empty vectors first
+    if haskey(act, :time_data) && haskey(act, :distance_data) && 
+       !isempty(act[:time_data]) && !isempty(act[:distance_data])
+
+        # Check types before proceeding
+        time_data_raw = act[:time_data]
+        distance_data_raw = act[:distance_data]
+
+        # Ensure the data is of the expected vector type, attempt conversion if necessary
+        time_data::Union{Vector{Int}, Nothing} = nothing
+        distance_data::Union{Vector{Float64}, Nothing} = nothing
+
+        if time_data_raw isa Vector{Int}
+            time_data = time_data_raw
+        elseif time_data_raw isa Vector{Any}
+            try
+                time_data = convert(Vector{Int}, time_data_raw)
+            catch e
+                @warn "Could not convert time_data for activity $id to Vector{Int}. Skipping."
+                # Optionally print error: @error "Conversion error:" exception=(e, catch_backtrace())
+                continue # Skip this iteration
+            end
+        else
+             @warn "Unexpected type for time_data for activity $id: $(typeof(time_data_raw)). Skipping."
+             continue # Skip this iteration
+        end
+
+        if distance_data_raw isa Vector{Float64}
+            distance_data = distance_data_raw
+        elseif distance_data_raw isa Vector{Any}
+             try
+                distance_data = convert(Vector{Float64}, distance_data_raw)
+            catch e
+                @warn "Could not convert distance_data for activity $id to Vector{Float64}. Skipping."
+                # Optionally print error: @error "Conversion error:" exception=(e, catch_backtrace())
+                continue # Skip this iteration
+            end
+        else
+             @warn "Unexpected type for distance_data for activity $id: $(typeof(distance_data_raw)). Skipping."
+             continue # Skip this iteration
+        end
+
+        # Check if conversions were successful (should not be nothing if we haven't continued)
+        if time_data !== nothing && distance_data !== nothing
+            # Use broadcasting with Ref for scalar arguments (vectors) and pre-calculated meters
+            times[:, col_idx] .= calculate_fastest_split.(Ref(time_data), Ref(distance_data), target_distances_meters)
+        end
     end
 end
+
+# Convert times to Float64 minutes for paces calculation, handling missing
+# Divide the (70, 438) times matrix by the (70,) rng vector.
+# Broadcasting handles this correctly by treating rng as a (70, 1) column vector
+# and dividing each column of (times ./ 60.0) by the corresponding element in rng.
+paces .= ifelse.(ismissing.(times), missing, (times ./ 60.0) ./ rng)
 
 max_paces = minimum.(skipmissing.(eachrow(paces)), init = Inf)
 replace!(max_paces, Inf => missing)
@@ -169,21 +237,29 @@ begin
     end
 end; display(fig)
 
-
 save("examples/fastest_splits.png", fig)
 
 for dist in rng
     idx = findfirst(==(dist), rng)
-    pace, idx2 = findmin(skipmissing(paces[idx, :]))
+    # Need to handle potential missing values when finding the minimum pace
+    row_paces = paces[idx, :]
+    valid_indices = findall(!ismissing, row_paces)
+    if isempty(valid_indices)
+        println("$(dist) miles: No valid pace found.")
+        continue
+    end
+    min_pace, rel_idx = findmin(@view row_paces[valid_indices])
+    idx2 = valid_indices[rel_idx]
+
 
     id = ids[idx2]
     details = filter(list) do a
         a[:id] == id
     end
+    
     details = length(details) > 0 ? first(details) : Dict(:id => id, :name => "Unknown")
-    act = actDict[id]
 
-    pace_str = pace_to_str(pace)
+    pace_str = pace_to_str(min_pace)
 
     println("$(dist) miles: $(pace_str) in activity $(details[:name]) https://www.strava.com/activities/$(details[:id])")
 end
