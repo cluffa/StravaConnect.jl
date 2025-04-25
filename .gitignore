@@ -1,7 +1,7 @@
 .DS_Store
 .secret
 .tokens
-Manifest.toml
+Manifest*.toml
 .vscode/
 
 data/

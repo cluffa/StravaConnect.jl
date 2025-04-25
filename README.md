@@ -11,6 +11,9 @@ STRAVA_CLIENT_SECRET
 
 ### Examples
 
+```
+pkg> add https://github.com/cluffa/StravaConnect.jl.git
+```
 
 ```julia
 using StravaConnect

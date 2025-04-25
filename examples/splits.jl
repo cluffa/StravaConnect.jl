@@ -3,7 +3,6 @@ using Pkg; Pkg.activate(@__DIR__); Pkg.instantiate()
 using Revise
 using WGLMakie
 using WGLMakie.Makie
-using WGLMakie.Colors
 using StravaConnect
 
 @info pathof(StravaConnect)
@@ -38,7 +37,6 @@ function calculate_fastest_split(act, distance::Float64=1.0; in_miles=true)
     n = length(time_data) # Assuming time and distance data have the same length
     fastest_split = typemax(Int)
     while j <= n && i <= n
-        # Ensure indices are valid before accessing
         current_distance = distance_data[j] - distance_data[i]
 
         if current_distance >= split_distance_meters
@@ -111,7 +109,7 @@ times = fill!(Matrix{Union{Missing, Float64}}(undef, length(rng), length(list)),
 
 ids = getindex.(list, :id)
 
-Threads.@threads for (i, id) in enumerate(ids) |> collect
+@time @inbounds Threads.@threads for (i, id) in enumerate(ids) |> collect
     act = actDict[id]
     if haskey(act, :time_data) && haskey(act, :distance_data)
         times[:, i] .= [(calculate_fastest_split(act, d)/60) for d in rng]
@@ -124,26 +122,32 @@ replace!(max_paces, Inf => missing)
 
 # plot rng, max_paces
 
+function pace_to_str(pace::Real)::String
+    pace_min = floor(pace) |> Int
+    pace_sec = floor((pace - pace_min) * 60) |> Int
+    return string(pace_min, ":", lpad(pace_sec, 2, "0"))
+end
+
+pace_to_str(paces::Vector)::Vector{String} = pace_to_str.(paces)
+
 begin
     fig = Figure()
     ax = Axis(
         fig[1, 1],
         title = "Fastest splits",
         xlabel = "Distance (miles)",
-        ylabel = "Pace (min/mile)",   
+        ylabel = "Pace (min/mile)",
+        xscale = log,
+        xticks = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 20, 25, 30],
+        ytickformat = pace_to_str,
     )
 
-    xlims!(ax, 0, maximum(rng))
+    # xlims!(ax, 0, maximum(rng))
     ylims!(ax, minimum(max_paces), maximum(max_paces))
+    
 
     lines!(
         ax, rng, max_paces, color = :black, label = "Fastest split",
-        # inspector_label = (plot, idx, pos) -> begin
-        #     pace = max_paces[idx]
-        #     dist = rng[idx]
-        #     isnothing(pace) || ismissing(pace) ? "No data" :
-        #         "Distance: $(round(dist, digits=2)) mi\nPace: $(round(pace, digits=2)) min/mi"
-        # end
     )
 
     # vlines!(ax, race_distances, 0, maximum(max_paces), color = :lightgreen, label = "5k")
@@ -165,6 +169,7 @@ begin
     end
 end; display(fig)
 
+
 save("examples/fastest_splits.png", fig)
 
 for dist in rng
@@ -178,8 +183,7 @@ for dist in rng
     details = length(details) > 0 ? first(details) : Dict(:id => id, :name => "Unknown")
     act = actDict[id]
 
-    pace_min = floor(pace) |> Int
-    pace_sec = floor((pace - pace_min) * 60) |> Int
-    pace_str = string(pace_min, ":", lpad(pace_sec, 2, "0"))
-    println("Fastest split for $(dist) miles: $(pace_str) in activity $(details[:name]) $(details[:id])")
+    pace_str = pace_to_str(pace)
+
+    println("$(dist) miles: $(pace_str) in activity $(details[:name]) https://www.strava.com/activities/$(details[:id])")
 end
