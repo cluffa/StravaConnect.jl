@@ -1,19 +1,12 @@
-using Pkg
+using Pkg; Pkg.activate(@__DIR__); Pkg.instantiate()
 
-begin
-    Pkg.activate("./examples")
-    Pkg.instantiate()
-    using Revise
-    using WGLMakie
-    using WGLMakie.Colors
+using Revise
+using WGLMakie
+using WGLMakie.Makie
+using WGLMakie.Colors
+using StravaConnect
 
-    Pkg.activate(".")
-    Pkg.instantiate()
-    using StravaConnect
-
-    Pkg.activate("./examples")
-    @info pathof(StravaConnect)
-end
+@info pathof(StravaConnect)
 
 meter_to_mile(x::Real)::Real = x / 1609.34
 mile_to_meter(x::Real)::Real = x * 1609.34
@@ -73,7 +66,6 @@ list = get_activity_list() |> reduce_subdicts! |> fill_dicts!;
 cached_ids = get_cached_activity_ids()
 filter!(list) do a
     contains(lowercase(a[:type]), "run") &&
-        !contains(lowercase(a[:type]), "ride") &&
         a[:id] ∈ cached_ids
 end;
 
@@ -109,7 +101,7 @@ filter!(race_distances) do d
     d <= max_distance
 end
 
-res = 0.1
+res = 0.5
 rng = vcat(race_distances, 1:res:floor_to_factor(max_distance, res))
 sort!(rng)
 unique!(rng)
@@ -154,7 +146,7 @@ begin
         # end
     )
 
-    vlines!(ax, race_distances, 0, maximum(max_paces), color = :lightgreen, label = "5k")
+    # vlines!(ax, race_distances, 0, maximum(max_paces), color = :lightgreen, label = "5k")
 
     for (i, id) in enumerate(ids)
         act = actDict[id]
@@ -171,9 +163,9 @@ begin
             )
         end
     end
+end; display(fig)
 
-    fig
-end
+save("examples/fastest_splits.png", fig)
 
 for dist in rng
     idx = findfirst(==(dist), rng)

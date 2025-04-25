@@ -10,22 +10,21 @@ STRAVA_CLIENT_SECRET
 ```
 
 ### Examples
+
+
 ```julia
 using StravaConnect
-# loads/saves to file if path provided
-user = setup_user("/data/user.json") 
 
-activities = get_activity_list(u)
+get_or_setup_user();
 
-id = activities[end][:id]
+list = get_activity_list() .|> reduce_subdicts! |> fill_dicts!;
 
-activity = get_activity(id, u)
+id = list[end][:id]
+id = get_cached_activity_ids()[1]
 
-# Helper functions
-# flattens subdicts into current dict, useful for DataFrame(Vector{Dict})
-# d[:map][:summary_polyline] becomes d[:map_summary_polyline]
-reduce_subdicts!(Vector{Dict} or Dict)
+get_activity(id)
 
-# gives each dict in a vector all keys, useful for DataFrame(Vector{Dict})
-fill_dicts!(Vector{Dict})
+get_cached_activity(id)
+
+get_cached_activity_stream(id, :latlng)
 ```
