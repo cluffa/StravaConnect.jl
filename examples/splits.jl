@@ -12,53 +12,68 @@ meter_to_mile(x::Real)::Real = x / 1609.34
 mile_to_meter(x::Real)::Real = x * 1609.34
 
 """
-    calculate_fastest_split(time_data::Vector{Int}, distance_data::Vector{Float64}, target_distance::Float64) -> Int
+    calculate_fastest_split!(dest::AbstractVector{Int}, time_data::Vector{Int}, distance_data::Vector{Float64}, target_distances::Vector{Float64})
 
-Calculates the fastest split time in seconds for a given distance in meters.
+Calculates the fastest split time in seconds for given distances in meters and stores them in `dest`.
 
 # Arguments
+- `dest::AbstractVector{Int}`: Vector to store the calculated fastest split times in seconds.
 - `time_data::Vector{Int}`: Vector of timestamps in seconds.
 - `distance_data::Vector{Float64}`: Vector of distances in meters.
-- `target_distance::Float64`: The desired distance for the split in meters.
+- `target_distances::Vector{Float64}`: Vector of desired distances for the splits in meters.
 
 # Returns
-- `Int`: The fastest split time in seconds for the specified distance. Returns `typemax(Int)` if no split of that distance is found.
+- `Nothing`: The function modifies `dest` in place.
 """
-function calculate_fastest_split(time_data::Vector{Int}, distance_data::Vector{Float64}, target_distance::Float64)::Int
+function calculate_fastest_split!(dest::AbstractVector{Int}, time_data::Vector{Int}, distance_data::Vector{Float64}, target_distances::Vector{Float64})
     n = length(time_data) # Assuming time and distance data have the same length
-    # Early exit if data is empty or target distance is non-positive
-    if n == 0 || target_distance <= 0.0
-        return typemax(Int)
+    # Early exit if data is empty
+    if n == 0
+        fill!(dest, typemax(Int))
+        return nothing
     end
 
-    i = 1 # start index
-    j = 1 # end index
-    fastest_split = typemax(Int)
-    min_split_found = false # Flag to track if any valid split was found
+    # Pre-allocate or check length
+    if length(dest) != length(target_distances)
+        error("Destination vector length must match target distances length.")
+    end
 
-    @inbounds while j <= n && i <= n
-        current_distance = distance_data[j] - distance_data[i]
-
-        if current_distance >= target_distance
-            # Potential split found
-            split_time = time_data[j] - time_data[i]
-            if split_time < fastest_split
-                fastest_split = split_time
-                min_split_found = true
-            end
-            # Try to shorten the window from the left
-            i += 1
-            # Ensure i doesn't skip past j unnecessarily after incrementing
-            if i > j && j <= n
-                 j = i # Reset j if i overtook it
-            end
-        else
-            # Expand the window to the right
-            j += 1
+    for (k, target_distance) in enumerate(target_distances)
+        # Early exit if target distance is non-positive
+        if target_distance <= 0.0
+            dest[k] = typemax(Int)
+            continue
         end
-    end
 
-    return min_split_found ? fastest_split : typemax(Int)
+        i = 1 # start index
+        j = 1 # end index
+        fastest_split = typemax(Int)
+        min_split_found = false # Flag to track if any valid split was found
+
+        @inbounds while j <= n && i <= n
+            current_distance = distance_data[j] - distance_data[i]
+
+            if current_distance >= target_distance
+                # Potential split found
+                split_time = time_data[j] - time_data[i]
+                if split_time < fastest_split
+                    fastest_split = split_time
+                    min_split_found = true
+                end
+                # Try to shorten the window from the left
+                i += 1
+                # Ensure i doesn't skip past j unnecessarily after incrementing
+                if i > j && j <= n
+                    j = i # Reset j if i overtook it
+                end
+            else
+                # Expand the window to the right
+                j += 1
+            end
+        end
+        dest[k] = min_split_found ? fastest_split : typemax(Int)
+    end
+    return nothing
 end
 
 get_or_setup_user();
@@ -72,7 +87,7 @@ end;
 
 distances = Dict{Int64, Float64}(l[:id] => l[:distance] for l in list)
 
-@time actDict = Dict(
+actDict = Dict(
     id => Dict{Symbol, Any}(
         :distance_data => get_cached_activity_stream(id, :distance)[:data],
         :time_data => get_cached_activity_stream(id, :time)[:data]
@@ -81,16 +96,40 @@ distances = Dict{Int64, Float64}(l[:id] => l[:distance] for l in list)
 
 # scales activities with corrected distances
 for id in getindex.(list, :id)
-    if haskey(actDict[id], :distance_data)
-        scale = distances[id] / actDict[id][:distance_data][end]
-        actDict[id][:scale] = scale
-        if scale != 1.0
-            actDict[id][:distance_data] .*= scale
+    if haskey(actDict[id], :distance_data) && !isempty(actDict[id][:distance_data]) # Check if distance_data exists and is not empty
+        # Ensure correct types after fetching
+        if !(actDict[id][:time_data] isa Vector{Int})
+             actDict[id][:time_data] = Vector{Int}(actDict[id][:time_data])
         end
+        if !(actDict[id][:distance_data] isa Vector{Float64})
+             actDict[id][:distance_data] = Vector{Float64}(actDict[id][:distance_data])
+        end
+
+        # Check again after potential conversion, as conversion might yield empty
+        if !isempty(actDict[id][:distance_data])
+            scale = distances[id] / actDict[id][:distance_data][end]
+            actDict[id][:scale] = scale
+            if scale != 1.0
+                actDict[id][:distance_data] .*= scale
+            end
+        else
+             # Handle cases where distance data became empty after conversion or was initially empty
+             # Maybe remove the entry or mark it as invalid? For now, just skip scaling.
+             delete!(actDict, id) # Remove activity if essential data is missing/empty
+        end
+    elseif haskey(actDict, id) # If distance_data is missing entirely
+        delete!(actDict, id) # Remove activity if essential data is missing
     end
 end
 
-acts = values(actDict) |> collect
+# Filter list and ids based on remaining keys in actDict after cleaning
+filter!(list) do a
+    haskey(actDict, a[:id])
+end
+ids = getindex.(list, :id) # Update ids based on the filtered list
+
+# Remove the unused 'acts' variable allocation
+# acts = values(actDict) |> collect
 
 function floor_to_factor(x::Real, factor::Real)
     return floor(x / factor) * factor
@@ -113,12 +152,31 @@ times = fill!(Matrix{Int}(undef, length(rng), length(list)), typemax(Int)) # Ini
 
 ids = getindex.(list, :id)
 
-@time @inbounds Threads.@threads for (col_idx, id) in enumerate(ids) |> collect
+# Update the threaded loop to use enumerate(ids) again
+@time @inbounds Threads.@threads for (col_idx, id) in enumerate(ids) |> collect # Revert back to enumerate
+    # Check if id still exists in actDict (might have been deleted if data was bad)
+    # This check might be redundant if ids is correctly updated after cleaning actDict,
+    # but adds safety.
+    if !haskey(actDict, id)
+        # If an id was removed, fill its corresponding time column with typemax(Int)
+        times[:, col_idx] .= typemax(Int)
+        continue
+    end
     act = actDict[id]
 
-    time_data = act[:time_data] isa Vector{Int} ? act[:time_data] : Vector{Int}(act[:time_data])
-    distance_data = act[:distance_data] isa Vector{Float64} ? act[:distance_data] : Vector{Float64}(act[:distance_data])
-    times[:, col_idx] .= calculate_fastest_split.((time_data,), (distance_data,), target_distances_meters)
+    # Type conversions are now done earlier, assuming they succeeded.
+    # If they failed, the entry should have been removed from actDict and ids.
+    time_data = act[:time_data]
+    distance_data = act[:distance_data]
+
+    # Handle potentially empty data streams even after initial checks
+    if isempty(time_data) || isempty(distance_data)
+         times[:, col_idx] .= typemax(Int)
+         continue
+    end
+
+    # Use the mutating function with a view of the times matrix column
+    calculate_fastest_split!(@view(times[:, col_idx]), time_data, distance_data, target_distances_meters)
 end
 
 paces .= ifelse.(times .== typemax(Int), Inf, (times ./ 60.0) ./ rng) # Use Inf for invalid times
@@ -182,7 +240,7 @@ save("examples/fastest_splits.png", fig)
 for dist in rng
     idx = findfirst(==(dist), rng)
     # Need to handle potential Inf values when finding the minimum pace
-    row_paces = paces[idx, :]
+    row_paces = @view paces[idx, :] # Use @view to avoid allocation
     valid_indices = findall(isfinite, row_paces) # Find finite values (not Inf)
     if isempty(valid_indices)
         println("$(dist) miles: No valid pace found.")
@@ -193,11 +251,16 @@ for dist in rng
 
 
     id = ids[idx2]
-    details = filter(list) do a
-        a[:id] == id
+    # Use findfirst to get the index of the matching activity in list
+    detail_idx = findfirst(a -> a[:id] == id, list)
+
+    details = if !isnothing(detail_idx)
+        list[detail_idx]
+    else
+        # Fallback if somehow the id isn't found in the filtered list
+        Dict(:id => id, :name => "Unknown (ID not found in list)")
     end
 
-    details = length(details) > 0 ? first(details) : Dict(:id => id, :name => "Unknown")
 
     pace_str = pace_to_str(min_pace)
 
