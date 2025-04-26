@@ -11,7 +11,7 @@ meter_to_mile(x::Real)::Real = x / 1609.34
 mile_to_meter(x::Real)::Real = x * 1609.34
 
 """
-    calculate_fastest_split(time_data::Vector{Int}, distance_data::Vector{Float64}, target_distance::Float64) -> Union{Int, Missing}
+    calculate_fastest_split(time_data::Vector{Int}, distance_data::Vector{Float64}, target_distance::Float64) -> Int
 
 Calculates the fastest split time in seconds for a given distance in meters.
 
@@ -21,13 +21,13 @@ Calculates the fastest split time in seconds for a given distance in meters.
 - `target_distance::Float64`: The desired distance for the split in meters.
 
 # Returns
-- `Union{Int, Missing}`: The fastest split time in seconds for the specified distance. Returns `missing` if no split of that distance is found.
+- `Int`: The fastest split time in seconds for the specified distance. Returns `typemax(Int)` if no split of that distance is found.
 """
-function calculate_fastest_split(time_data::Vector{Int}, distance_data::Vector{Float64}, target_distance::Float64)::Union{Int, Missing}
+function calculate_fastest_split(time_data::Vector{Int}, distance_data::Vector{Float64}, target_distance::Float64)::Int
     n = length(time_data) # Assuming time and distance data have the same length
     # Early exit if data is empty or target distance is non-positive
     if n == 0 || target_distance <= 0.0
-        return missing
+        return typemax(Int)
     end
 
     i = 1 # start index
@@ -57,7 +57,7 @@ function calculate_fastest_split(time_data::Vector{Int}, distance_data::Vector{F
         end
     end
 
-    return min_split_found ? fastest_split : missing
+    return min_split_found ? fastest_split : typemax(Int)
 end
 
 get_or_setup_user();
@@ -107,8 +107,8 @@ sort!(rng)
 unique!(rng)
 target_distances_meters = mile_to_meter.(rng) # Pre-calculate target distances in meters
 
-paces = fill!(Matrix{Union{Missing, Float64}}(undef, length(rng), length(list)), missing)
-times = fill!(Matrix{Union{Missing, Int}}(undef, length(rng), length(list)), missing) # Use Int for time
+paces = fill!(Matrix{Float64}(undef, length(rng), length(list)), Inf) # Initialize with Inf
+times = fill!(Matrix{Int}(undef, length(rng), length(list)), typemax(Int)) # Initialize with typemax(Int)
 
 ids = getindex.(list, :id)
 
@@ -120,10 +120,10 @@ ids = getindex.(list, :id)
     times[:, col_idx] .= calculate_fastest_split.((time_data,), (distance_data,), target_distances_meters)
 end
 
-paces .= ifelse.(ismissing.(times), missing, (times ./ 60.0) ./ rng)
+paces .= ifelse.(times .== typemax(Int), Inf, (times ./ 60.0) ./ rng) # Use Inf for invalid times
 
-max_paces = minimum.(skipmissing.(eachrow(paces)), init = Inf)
-replace!(max_paces, Inf => missing)
+max_paces = minimum.(eachrow(paces), init = Inf) # Remove skipmissing
+replace!(max_paces, Inf => missing) # Keep missing for plotting gaps
 
 # plot rng, max_paces
 
@@ -180,14 +180,14 @@ save("examples/fastest_splits.png", fig)
 
 for dist in rng
     idx = findfirst(==(dist), rng)
-    # Need to handle potential missing values when finding the minimum pace
+    # Need to handle potential Inf values when finding the minimum pace
     row_paces = paces[idx, :]
-    valid_indices = findall(!ismissing, row_paces)
+    valid_indices = findall(isfinite, row_paces) # Find finite values (not Inf)
     if isempty(valid_indices)
         println("$(dist) miles: No valid pace found.")
         continue
     end
-    min_pace, rel_idx = findmin(@view row_paces[valid_indices])
+    min_pace, rel_idx = findmin(@view row_paces[valid_indices]) # findmin ignores Inf implicitly if finite values exist
     idx2 = valid_indices[rel_idx]
 
 
