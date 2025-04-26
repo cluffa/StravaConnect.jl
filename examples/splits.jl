@@ -60,21 +60,6 @@ function calculate_fastest_split(time_data::Vector{Int}, distance_data::Vector{F
     return min_split_found ? fastest_split : missing
 end
 
-# Overload for convenience with miles conversion
-function calculate_fastest_split(act::Dict, distance::Float64=1.0; in_miles=true)::Union{Int, Missing}
-    # Check if required data exists
-    if !haskey(act, :time_data) || !haskey(act, :distance_data) || isempty(act[:time_data]) || isempty(act[:distance_data])
-        return missing
-    end
-
-    target_distance_meters = in_miles ? mile_to_meter(distance) : distance
-    time_data = act[:time_data]::Vector{Int}
-    distance_data = act[:distance_data]::Vector{Float64}
-
-    return calculate_fastest_split(time_data, distance_data, target_distance_meters)
-end
-
-
 get_or_setup_user();
 
 list = get_activity_list() |> reduce_subdicts! |> fill_dicts!;
@@ -86,7 +71,7 @@ end;
 
 distances = Dict{Int64, Float64}(l[:id] => l[:distance] for l in list)
 
-actDict = Dict(
+@time actDict = Dict(
     id => Dict{Symbol, Any}(
         :distance_data => get_cached_activity_stream(id, :distance)[:data],
         :time_data => get_cached_activity_stream(id, :time)[:data]
@@ -129,60 +114,12 @@ ids = getindex.(list, :id)
 
 @time @inbounds Threads.@threads for (col_idx, id) in enumerate(ids) |> collect
     act = actDict[id]
-    # Check for key existence and non-empty vectors first
-    if haskey(act, :time_data) && haskey(act, :distance_data) && 
-       !isempty(act[:time_data]) && !isempty(act[:distance_data])
 
-        # Check types before proceeding
-        time_data_raw = act[:time_data]
-        distance_data_raw = act[:distance_data]
-
-        # Ensure the data is of the expected vector type, attempt conversion if necessary
-        time_data::Union{Vector{Int}, Nothing} = nothing
-        distance_data::Union{Vector{Float64}, Nothing} = nothing
-
-        if time_data_raw isa Vector{Int}
-            time_data = time_data_raw
-        elseif time_data_raw isa Vector{Any}
-            try
-                time_data = convert(Vector{Int}, time_data_raw)
-            catch e
-                @warn "Could not convert time_data for activity $id to Vector{Int}. Skipping."
-                # Optionally print error: @error "Conversion error:" exception=(e, catch_backtrace())
-                continue # Skip this iteration
-            end
-        else
-             @warn "Unexpected type for time_data for activity $id: $(typeof(time_data_raw)). Skipping."
-             continue # Skip this iteration
-        end
-
-        if distance_data_raw isa Vector{Float64}
-            distance_data = distance_data_raw
-        elseif distance_data_raw isa Vector{Any}
-             try
-                distance_data = convert(Vector{Float64}, distance_data_raw)
-            catch e
-                @warn "Could not convert distance_data for activity $id to Vector{Float64}. Skipping."
-                # Optionally print error: @error "Conversion error:" exception=(e, catch_backtrace())
-                continue # Skip this iteration
-            end
-        else
-             @warn "Unexpected type for distance_data for activity $id: $(typeof(distance_data_raw)). Skipping."
-             continue # Skip this iteration
-        end
-
-        # Check if conversions were successful (should not be nothing if we haven't continued)
-        if time_data !== nothing && distance_data !== nothing
-            # Use broadcasting with Ref for scalar arguments (vectors) and pre-calculated meters
-            times[:, col_idx] .= calculate_fastest_split.(Ref(time_data), Ref(distance_data), target_distances_meters)
-        end
-    end
+    time_data = act[:time_data] isa Vector{Int} ? act[:time_data] : Vector{Int}(act[:time_data])
+    distance_data = act[:distance_data] isa Vector{Float64} ? act[:distance_data] : Vector{Float64}(act[:distance_data])
+    times[:, col_idx] .= calculate_fastest_split.((time_data,), (distance_data,), target_distances_meters)
 end
 
-# Convert times to Float64 minutes for paces calculation, handling missing
-# Divide the (70, 438) times matrix by the (70,) rng vector.
-# Broadcasting handles this correctly by treating rng as a (70, 1) column vector
-# and dividing each column of (times ./ 60.0) by the corresponding element in rng.
 paces .= ifelse.(ismissing.(times), missing, (times ./ 60.0) ./ rng)
 
 max_paces = minimum.(skipmissing.(eachrow(paces)), init = Inf)
@@ -206,7 +143,7 @@ begin
         xlabel = "Distance (miles)",
         ylabel = "Pace (min/mile)",
         xscale = log,
-        xticks = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 20, 25, 30],
+        xticks = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 20, 25, 30, 50, 100],
         ytickformat = pace_to_str,
     )
 
@@ -256,7 +193,7 @@ for dist in rng
     details = filter(list) do a
         a[:id] == id
     end
-    
+
     details = length(details) > 0 ? first(details) : Dict(:id => id, :name => "Unknown")
 
     pace_str = pace_to_str(min_pace)

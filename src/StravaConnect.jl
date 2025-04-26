@@ -10,7 +10,8 @@ using PrecompileTools: @setup_workload, @compile_workload
 export setup_user, get_or_setup_user,
     get_activity_list, get_cached_activity_list, get_cached_activity_ids,
     get_activity, get_cached_activity, get_cached_activity_stream,
-    reduce_subdicts!, fill_dicts!
+    reduce_subdicts!, fill_dicts!,
+    DataStream, ActivityData
 
 const DATA_DIR = get(ENV, "STRAVA_DATA_DIR", tempdir())
 
@@ -277,6 +278,51 @@ function get_activity_list(; data_dir::String = DATA_DIR, force_update::Bool = f
     return get_activity_list(u; data_dir=data_dir, force_update=force_update)
 end
 
+# struct DataStream{T}
+#     original_size::Int
+#     series_type::String
+#     resolution::String
+#     data::Vector{T}
+# end
+
+# function DataStream{T}(ds::Dict{Symbol, Any})::DataStream{T} where T
+#     if T == Tuple{Float32, Float32}
+#         return DataStream{T}(ds[:original_size], ds[:series_type], ds[:resolution], Tuple{Float32, Float32}.(ds[:data]))
+#     else
+#         return DataStream{T}(ds[:original_size], ds[:series_type], ds[:resolution], convert(Vector{T}, ds[:data]))
+#     end
+# end
+
+# mutable struct ActivityData
+#     time::Union{DataStream{Int}, Missing}
+#     distance::Union{DataStream{Float32}, Missing}
+#     latlng::Union{DataStream{Tuple{Float32, Float32}}, Missing}
+#     altitude::Union{DataStream{Float32}, Missing}
+#     velocity_smooth::Union{DataStream{Float32}, Missing}
+#     heartrate::Union{DataStream{Int32}, Missing}
+#     cadence::Union{DataStream{Int32}, Missing}
+#     watts::Union{DataStream{Int32}, Missing}
+#     temp::Union{DataStream{Int32}, Missing}
+#     moving::Union{DataStream{Bool}, Missing}
+#     grade_smooth::Union{DataStream{Float32}, Missing}
+# end
+
+# function ActivityData(d::Dict{Symbol, Any})::ActivityData
+#     return ActivityData(
+#         !haskey(d, :time) || isnothing(d[:time]) ? missing : DataStream{Int}(d[:time]),
+#         !haskey(d, :distance) || isnothing(d[:distance]) ? missing : DataStream{Float32}(d[:distance]),
+#         !haskey(d, :latlng) || isnothing(d[:latlng]) ? missing : DataStream{Tuple{Float32, Float32}}(d[:latlng]),
+#         !haskey(d, :altitude) || isnothing(d[:altitude]) ? missing : DataStream{Float32}(d[:altitude]),
+#         !haskey(d, :velocity_smooth) || isnothing(d[:velocity_smooth]) ? missing : DataStream{Float32}(d[:velocity_smooth]),
+#         !haskey(d, :heartrate) || isnothing(d[:heartrate]) ? missing : DataStream{Int32}(d[:heartrate]),
+#         !haskey(d, :cadence) || isnothing(d[:cadence]) ? missing : DataStream{Int32}(d[:cadence]),
+#         !haskey(d, :watts) || isnothing(d[:watts]) ? missing : DataStream{Int32}(d[:watts]),
+#         !haskey(d, :temp) || isnothing(d[:temp]) ? missing : DataStream{Int32}(d[:temp]),
+#         !haskey(d, :moving) || isnothing(d[:moving]) ? missing : DataStream{Bool}(d[:moving]),
+#         !haskey(d, :grade_smooth) || isnothing(d[:grade_smooth]) ? missing : DataStream{Float32}(d[:grade_smooth])
+#     )
+# end
+
 """
     get_activity(id::Int; data_dir::String = DATA_DIR, force_update::Bool = false, verbose::Bool = false, wait_on_rate_limit::Bool = true) -> Dict{Symbol, Any}
 
@@ -329,8 +375,14 @@ function get_activity(id::Int, u::User; data_dir::String = DATA_DIR, force_updat
         if haskey(f, "activity/$id") && !force_update
             activity = Dict{Symbol, Any}()
             data = f["activity/$id"]
-
+                
             for k in keys(data)
+                # for k2 in keys(data[k])
+                #     if data[k][k2] isa Vector{Any}
+                #         data[k][k2] = collect((x for x in data[k][k2]))
+                #     end
+                # end
+
                 activity[Symbol(k)] = data[k]
             end
 
