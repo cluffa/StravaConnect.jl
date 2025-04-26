@@ -145,11 +145,13 @@ begin
         xscale = log,
         xticks = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 20, 25, 30, 50, 100],
         ytickformat = pace_to_str,
+        yreversed = true # Invert the y-axis
     )
 
     # xlims!(ax, 0, maximum(rng))
-    ylims!(ax, minimum(max_paces), maximum(max_paces))
-    
+    # Adjust ylims for reversed axis: max value first, min value second
+    ylims!(ax, maximum(max_paces), minimum(max_paces))
+
 
     lines!(
         ax, rng, max_paces, color = :black, label = "Fastest split",
