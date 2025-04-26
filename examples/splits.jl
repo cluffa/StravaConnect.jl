@@ -1,8 +1,9 @@
 using Pkg; Pkg.activate(@__DIR__); Pkg.instantiate()
 
 using Revise
-using WGLMakie
-using WGLMakie.Makie
+using Makie
+# using WGLMakie
+using CairoMakie
 using StravaConnect
 
 @info pathof(StravaConnect)
