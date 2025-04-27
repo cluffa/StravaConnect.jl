@@ -9,13 +9,29 @@ using PrecompileTools: @setup_workload, @compile_workload
 
 export setup_user, get_or_setup_user,
     get_activity_list, get_cached_activity_list, get_cached_activity_ids,
-    get_activity, get_cached_activity, get_cached_activity_stream,
+    get_activity, get_activity_stream, get_cached_activity, get_cached_activity_stream,
     reduce_subdicts!, fill_dicts!
 
 const DATA_DIR = get(ENV, "STRAVA_DATA_DIR", tempdir())
 
 const HIDE = true
 const STREAMKEYS = ("time", "distance", "latlng", "altitude", "velocity_smooth", "heartrate", "cadence", "watts", "temp", "moving", "grade_smooth")
+
+FloatType = Float32
+IntType = Int32
+const STREAM_TYPES = Dict{Symbol, Type}(
+    :time => Int, # always 64-bit
+    :distance => FloatType,
+    :latlng => Tuple{FloatType, FloatType},
+    :altitude => FloatType,
+    :velocity_smooth => FloatType,
+    :heartrate => FloatType,
+    :cadence => IntType,
+    :watts => IntType,
+    :temp => IntType,
+    :moving => Bool,
+    :grade_smooth => FloatType,
+)
 
 # conversions
 const METER_TO_MILE = 0.000621371
@@ -158,7 +174,7 @@ end
 """
     get_activity_list(u::User; data_dir::String = DATA_DIR, force_update::Bool = false) -> Vector{Dict}
 
-Retrieve a list of all activities for a user, with optional caching.
+Retrieve a list of all activities for a user, with caching.
 
 # Arguments
 - `u::User`: Authorized user struct.
@@ -261,7 +277,7 @@ end
 """
     get_activity_list(; data_dir::String = DATA_DIR, force_update::Bool = false) -> Vector{Dict}
 
-Retrieve a list of all activities for the current user, with optional caching.
+Retrieve a list of all activities for the current user, with caching.
 
 This version does not require a `User` argument; the user is loaded or created automatically and cached internally.
 
@@ -280,7 +296,7 @@ end
 """
     get_activity(id::Int; data_dir::String = DATA_DIR, force_update::Bool = false, verbose::Bool = false, wait_on_rate_limit::Bool = true) -> Dict{Symbol, Any}
 
-Retrieve detailed data for a specific activity for the current user, with optional caching.
+Retrieve detailed data for a specific activity for the current user, with caching.
 
 This version does not require a `User` argument; the user is loaded or created automatically and cached internally.
 
@@ -300,9 +316,34 @@ function get_activity(id::Int; data_dir::String = DATA_DIR, force_update::Bool =
 end
 
 """
+    get_activity_stream(id::Int, stream::Symbol; data_dir::String = DATA_DIR, force_update::Bool = false, verbose::Bool = false, wait_on_rate_limit::Bool = true) -> Union{Dict{Symbol, Any}, Missing}
+
+Retrieve a specific stream of data for a specific activity, with caching.
+
+# Arguments
+- `id::Int`: Activity ID to retrieve.
+- `stream::Symbol`: The stream to retrieve (e.g., :latlng).
+- `data_dir::String`: Directory for caching data (default: `DATA_DIR`).
+- `force_update::Bool`: If true, always fetches from the API and updates the cache (default: false).
+- `verbose::Bool`: If true, prints info messages (default: false).
+- `wait_on_rate_limit::Bool`: If true, waits and retries when rate limit is exceeded (default: true). If false, throws an error on rate limit.
+# Returns
+- `Dict{Symbol, Any}`: The requested stream's data vector, or `missing` if not found.
+
+"""
+function get_activity_stream(id::Int, stream::Symbol; data_dir::String = DATA_DIR, force_update::Bool = false, verbose::Bool = false, wait_on_rate_limit::Bool = true)::Union{Dict{Symbol, Any}, Missing}
+    activity = get_activity(id; data_dir=data_dir, force_update=force_update, verbose=verbose, wait_on_rate_limit=wait_on_rate_limit)
+    if haskey(activity, stream)
+        return activity[stream]
+    else
+        return missing
+    end 
+end
+
+"""
     get_activity(id::Int, u::User; data_dir::String = DATA_DIR, force_update::Bool = false, verbose::Bool = false, wait_on_rate_limit::Bool = true) -> Dict{Symbol, Any}
 
-Retrieve detailed data for a specific activity, with optional caching.
+Retrieve detailed data for a specific activity, with caching.
 
 # Arguments
 - `id::Int`: Activity ID to retrieve.
@@ -347,7 +388,15 @@ function get_activity(id::Int, u::User; data_dir::String = DATA_DIR, force_updat
                 end
 
                 for k in keys(activity)
-                    f["activity/$id/$k"] = activity[k]
+                    stream = activity[k]
+                    T = STREAM_TYPES[k]
+                    if any(isnothing.(stream[:data]))
+                        stream[:data] = Union{T, Missing}[isnothing(x) ? missing : T(x) for x in stream[:data]]
+                    else
+                        stream[:data] = T[isnothing(x) ? missing : T(x) for x in stream[:data]]  # convert the data to the correct type
+                    end
+                    
+                    f["activity/$id/$k"] = stream
                 end
 
                 if verbose
