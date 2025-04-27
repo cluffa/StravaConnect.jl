@@ -370,8 +370,14 @@ function get_activity(id::Int, u::User; data_dir::String = DATA_DIR, force_updat
         if haskey(f, "activity/$id") && !force_update
             activity = Dict{Symbol, Any}()
             data = f["activity/$id"]
-
+                
             for k in keys(data)
+                # for k2 in keys(data[k])
+                #     if data[k][k2] isa Vector{Any}
+                #         data[k][k2] = collect((x for x in data[k][k2]))
+                #     end
+                # end
+
                 activity[Symbol(k)] = data[k]
             end
 
