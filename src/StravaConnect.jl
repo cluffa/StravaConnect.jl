@@ -17,20 +17,18 @@ const DATA_DIR = get(ENV, "STRAVA_DATA_DIR", tempdir())
 const HIDE = true
 const STREAMKEYS = ("time", "distance", "latlng", "altitude", "velocity_smooth", "heartrate", "cadence", "watts", "temp", "moving", "grade_smooth")
 
-FloatType = Float32
-IntType = Int32
 const STREAM_TYPES = Dict{Symbol, Type}(
     :time => Int, # always 64-bit
-    :distance => FloatType,
-    :latlng => Tuple{FloatType, FloatType},
-    :altitude => FloatType,
-    :velocity_smooth => FloatType,
-    :heartrate => FloatType,
-    :cadence => IntType,
-    :watts => IntType,
-    :temp => IntType,
+    :distance => Float32,
+    :latlng => Tuple{Float32, Float32},
+    :altitude => Float32,
+    :velocity_smooth => Float32,
+    :heartrate => Float32,
+    :cadence => Float32,
+    :watts => Float32,
+    :temp => Float32,
     :moving => Bool,
-    :grade_smooth => FloatType,
+    :grade_smooth => Float32,
 )
 
 # conversions
@@ -396,10 +394,10 @@ function get_activity(id::Int, u::User; data_dir::String = DATA_DIR, force_updat
                 for k in keys(activity)
                     stream = activity[k]
                     T = STREAM_TYPES[k]
-                    if any(isnothing.(stream[:data]))
-                        stream[:data] = Union{T, Missing}[isnothing(x) ? missing : T(x) for x in stream[:data]]
+                    if any(isnothing.(stream[:data])) && T == Float32
+                        stream[:data] = T[isnothing(x) ? NaN32 : T(x) for x in stream[:data]]
                     else
-                        stream[:data] = T[isnothing(x) ? missing : T(x) for x in stream[:data]]  # convert the data to the correct type
+                        stream[:data] = T[T(x) for x in stream[:data]]  # convert the data to the correct type
                     end
                     
                     f["activity/$id/$k"] = stream
