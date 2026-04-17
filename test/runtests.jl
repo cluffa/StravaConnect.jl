@@ -1,16 +1,13 @@
-using Revise
 using StravaConnect
+using Test
+using HTTP
+using JSON3
+using Dates
 
-get_or_setup_user();
-
-list = get_activity_list() # .|> reduce_subdicts! |> fill_dicts! |> DataFrame;
-get_cached_activity_list()
-
-id = list[end][:id]
-ids = get_cached_activity_ids()
-
-get_activity(id)
-get_cached_activity(id)
-
-get_activity_stream(id, :time)
-get_cached_activity_stream(id, :time)
+@testset "StravaConnect.jl" begin
+    include("test_mock_server.jl")
+    
+    # Original tests (or placeholders)
+    # Note: get_or_setup_user() requires interactive input or a valid user.json
+    # In a CI/automated environment, we should use the mock server.
+end
