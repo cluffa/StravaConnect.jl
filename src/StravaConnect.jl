@@ -15,6 +15,38 @@ export setup_user, get_or_setup_user,
 const DATA_DIR = get(ENV, "STRAVA_DATA_DIR", tempdir())
 strava_base_url() = get(ENV, "STRAVA_BASE_URL", "https://www.strava.com")
 
+mutable struct RateLimit
+    short_term_limit::Int    # 15 min
+    short_term_usage::Int
+    long_term_limit::Int     # daily
+    long_term_usage::Int
+end
+
+RateLimit() = RateLimit(100, 0, 1000, 0) # Placeholder defaults
+
+const GLOBAL_RATE_LIMIT = Ref(RateLimit())
+
+function update_rate_limit!(resp::HTTP.Response)
+    limit_header = HTTP.header(resp, "X-RateLimit-Limit")
+    usage_header = HTTP.header(resp, "X-RateLimit-Usage")
+    
+    if !isempty(limit_header) && !isempty(usage_header)
+        try
+            limits = parse.(Int, split(limit_header, ","))
+            usage = parse.(Int, split(usage_header, ","))
+            
+            if length(limits) == 2 && length(usage) == 2
+                GLOBAL_RATE_LIMIT[].short_term_limit = limits[1]
+                GLOBAL_RATE_LIMIT[].short_term_usage = usage[1]
+                GLOBAL_RATE_LIMIT[].long_term_limit = limits[2]
+                GLOBAL_RATE_LIMIT[].long_term_usage = usage[2]
+            end
+        catch e
+            @warn "Failed to parse RateLimit headers: $e"
+        end
+    end
+end
+
 const HIDE = true
 const STREAMKEYS = ("time", "distance", "latlng", "altitude", "velocity_smooth", "heartrate", "cadence", "watts", "temp", "moving", "grade_smooth")
 
@@ -63,6 +95,8 @@ function activities_list_api(u::User, page::Int, per_page::Int, after::Int)::Uni
         status_exception = false  # Don't throw an exception for non-200 responses
     )
 
+    update_rate_limit!(resp)
+
     if resp.status == 429
         @warn "Rate limit exceeded, no new activities will be fetched."
         return nothing
@@ -99,6 +133,8 @@ function activity_api(u::User, id::Int; wait_on_rate_limit::Bool = true)::HTTP.R
         ),
         status_exception = false  # Don't throw an exception for non-200 responses
     )
+
+    update_rate_limit!(response)
 
     if response.status == 429
         if wait_on_rate_limit

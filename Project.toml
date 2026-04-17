@@ -12,6 +12,7 @@ JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
 LanguageServer = "2b0e0bc5-e4fd-59b4-8912-456d1b03d8d7"
 PrecompileTools = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
 Revise = "295af30f-e4ad-537b-8983-00126c2a3abe"
+SQLite = "0aa819cd-b072-5ff4-a722-6bc24af294d9"
 URIs = "5c2747f8-b7ea-4ff2-ba2e-563bfd36b1d4"
 
 [compat]
@@ -22,3 +23,4 @@ JSON3 = "1.14.1"
 LanguageServer = "5.0.0"
 PrecompileTools = "1.2.1"
 Revise = "3.14.1"
+SQLite = "1.8.0"
