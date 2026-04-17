@@ -5,12 +5,14 @@ using URIs
 using JSON3
 using Dates
 using JLD2
+using SQLite
 using PrecompileTools: @setup_workload, @compile_workload
 
 export setup_user, get_or_setup_user,
     get_activity_list, get_cached_activity_list, get_cached_activity_ids,
     get_activity, get_activity_stream, get_cached_activity, get_cached_activity_stream,
-    reduce_subdicts!, fill_dicts!
+    reduce_subdicts!, fill_dicts!,
+    StravaMockServer, start!, stop!, add_activity!, set_streams!
 
 const DATA_DIR = get(ENV, "STRAVA_DATA_DIR", tempdir())
 strava_base_url() = get(ENV, "STRAVA_BASE_URL", "https://www.strava.com")
@@ -71,8 +73,10 @@ c2f(c::Number)::Number = (c * 9/5) + 32
 
 include("oauth.jl")
 include("test_server/mock_server.jl")
+include("storage.jl")
+include("migrate.jl")
 
-export StravaMockServer, start!, stop!, add_activity!, set_streams!
+export StravaMockServer, start!, stop!, add_activity!, set_streams!, migrate_jld2_to_sqlite
 
 """
     activites_list_api(u::User, page::Int, per_page::Int, after::Int) -> HTTP.Response
@@ -226,32 +230,18 @@ See also: [`get_activity_list`](@ref) for a version that does not require a `Use
 """
 function get_activity_list(u::User; data_dir::String = DATA_DIR, force_update::Bool = false)::Vector{Dict{Symbol, Any}}
     refresh_if_needed!(u)
-    data_file = joinpath(data_dir, "data.jld2")
+    db = init_db(data_dir)
 
     T = Vector{Dict{Symbol, Union{Dict{Symbol, Any}, Any}}}
 
     mtime = 0
-    list = T(undef, 0)
+    list = Dict{Symbol, Any}[]
+    
     if !force_update
-        if !isdir(data_dir)
-            mkpath(data_dir)
-        end
-
-        jldopen(data_file, "a+") do io       
-            if haskey(io, "activities") && haskey(io, "mtime")
-                mtime = io["mtime"]
-                append!(list, io["activities"])
-            end
-        end
-        
-        @info "$(length(list)) activities loaded from cache"
+        mtime = get_cached_mtime(db)
+        list = get_cached_metadata_all(db)
+        @info "$(length(list)) activities loaded from SQLite cache"
     else
-        if !isdir(data_dir)
-            mkpath(data_dir)
-        end
-        # force update: ignore cache, set mtime to 0
-        mtime = 0
-        list = T(undef, 0)
         @info "Force update: fetching all activities from API."
     end
 
@@ -263,6 +253,7 @@ function get_activity_list(u::User; data_dir::String = DATA_DIR, force_update::B
  
         per_page = 200
         page = 1
+        new_count = 0
         while true
             resp = activities_list_api(u, page, per_page, mtime)
 
@@ -276,7 +267,12 @@ function get_activity_list(u::User; data_dir::String = DATA_DIR, force_update::B
                 break
             end
 
-            append!(list, data)
+            for act in data
+                id = Int(act[:id])
+                save_activity_metadata!(db, id, act, Int(floor(time())))
+                push!(list, act)
+                new_count += 1
+            end
             
             if length(data) < per_page
                 break
@@ -284,29 +280,9 @@ function get_activity_list(u::User; data_dir::String = DATA_DIR, force_update::B
 
             page += 1
         end
-    end
-
-    if !force_update
-        @info "$(length(list) - n_cache) new activities loaded, total $(length(list)) activities"
-        jldopen(data_file, "a+") do io
-            # only append new activities
-            if haskey(io, "activities")
-                append!(io["activities"], list[n_cache + 1:end])  # append only the new activities to the existing list
-            else
-                io["activities"] = list
-            end
-
-            delete!(io, "mtime")  # ensure we remove the old mtime if it exists
-            io["mtime"] = Int(floor(time()))
-        end
-    else
-        @info "Force update: overwriting cache with new activities."
-        jldopen(data_file, "a+") do io
-            delete!(io, "activities")  # remove the old activities
-            delete!(io, "mtime")  # remove the old mtime
-            io["activities"] = list
-            io["mtime"] = Int(floor(time()))
-        end
+        
+        set_cached_mtime!(db, Int(floor(time())))
+        @info "$new_count new activities loaded, total $(length(list)) activities"
     end
 
     return list
@@ -398,62 +374,52 @@ See also: [`get_activity`](@ref) for a version that does not require a `User` ar
 """
 function get_activity(id::Int, u::User; data_dir::String = DATA_DIR, force_update::Bool = false, verbose::Bool = false, wait_on_rate_limit::Bool = true)::Dict{Symbol, Any}
     refresh_if_needed!(u)
+    db = init_db(data_dir)
+
     T = Dict{Symbol, Dict{Symbol, Any}}
 
-    data_file = joinpath(data_dir, "data.jld2")
-
-    activity = Dict{Symbol, Any}()
+    activity = missing
+    if !force_update
+        if has_cached_streams(db, id)
+            activity = get_cached_activity_db(db, id)
+        end
+    end
     
-    jldopen(data_file, "a+") do f
-        if haskey(f, "activity/$id") && !force_update
+    if !ismissing(activity)
+        if verbose
+            @info "Loaded activity $id from SQLite cache"
+        end
+        return activity
+    else
+        response = activity_api(u, id; wait_on_rate_limit=wait_on_rate_limit)
+        if response.status == 200
+            activity_data = JSON3.read(response.body, T)
             activity = Dict{Symbol, Any}()
-            data = f["activity/$id"]
-                
-            for k in keys(data)
-                # for k2 in keys(data[k])
-                #     if data[k][k2] isa Vector{Any}
-                #         data[k][k2] = collect((x for x in data[k][k2]))
-                #     end
-                # end
 
-                activity[Symbol(k)] = data[k]
+            for k in keys(activity_data)
+                stream = activity_data[k]
+                ST = STREAM_TYPES[k]
+                if any(isnothing.(stream[:data])) && ST == Float32
+                    stream[:data] = ST[isnothing(x) ? NaN32 : ST(x) for x in stream[:data]]
+                else
+                    stream[:data] = ST[ST(x) for x in stream[:data]]  # convert the data to the correct type
+                end
+                
+                save_stream!(db, id, string(k), Dict(stream))
+                activity[k] = stream
             end
 
             if verbose
-                @info "Loaded activity $id from cache"
+                @info "Fetched activity $id from API and cached in SQLite"
             end
-        else
-            response = activity_api(u, id; wait_on_rate_limit=wait_on_rate_limit)
-            if response.status == 200
-                activity = JSON3.read(response.body, T)
-
-                if haskey(f, "activity/$id")
-                    delete!(f, "activity/$id")  # remove the old activity if it exists
-                end
-
-                for k in keys(activity)
-                    stream = activity[k]
-                    T = STREAM_TYPES[k]
-                    if any(isnothing.(stream[:data])) && T == Float32
-                        stream[:data] = T[isnothing(x) ? NaN32 : T(x) for x in stream[:data]]
-                    else
-                        stream[:data] = T[T(x) for x in stream[:data]]  # convert the data to the correct type
-                    end
-                    
-                    f["activity/$id/$k"] = stream
-                end
-
-                if verbose
-                    @info "Fetched activity $id from API"
-                end
-            elseif  response.status != 200
-                @warn "Error getting activity $id: $(response.status) $(response.body)"
-                return Dict{Symbol, Any}()  # return an empty dict if the request failed
-            end
+            return activity
+        elseif  response.status != 200
+            @warn "Error getting activity $id: $(response.status) $(response.body)"
+            return Dict{Symbol, Any}()  # return an empty dict if the request failed
         end
     end
 
-    return activity
+    return Dict{Symbol, Any}()
 end
 
 """
@@ -470,23 +436,17 @@ Load the cached list of activities from disk.
 This function does not contact the Strava API and only loads data previously cached by `get_activity_list`.
 """
 function get_cached_activity_list(data_dir::String = DATA_DIR)::Vector{Dict{Symbol, Any}}
-    if !isdir(data_dir)
-        @warn "Data directory $data_dir does not exist."
-        return Vector{Dict{Symbol, Any}}()
-    elseif !isfile(joinpath(data_dir, "data.jld2"))
-        @warn "No cached data found in $data_dir."
+    db_path = get_db_path(data_dir)
+    if !isfile(db_path)
+        @warn "No SQLite database found at $db_path."
         return Vector{Dict{Symbol, Any}}()
     end
 
-    data_file = joinpath(data_dir, "data.jld2")
-    file = jldopen(data_file, "r") 
-    out = get(file, "activities", Vector{Dict{Symbol, Any}}())  # return empty vector if key doesn't exist
-    @info "Loaded cached activity list from $data_file with $(length(out)) activities."
-    close(file)
+    db = SQLite.DB(db_path)
+    out = get_cached_metadata_all(db)
+    @info "Loaded cached activity list from $db_path with $(length(out)) activities."
     return out
 end
-
-
 
 """
     get_cached_activity_ids(data_dir::String = DATA_DIR) -> Vector{Int}
@@ -502,28 +462,15 @@ Load the cached list of activity IDs from disk.
 This function does not contact the Strava API and only loads IDs previously cached by `get_activity` or `get_activity_list`.
 """
 function get_cached_activity_ids(data_dir::String = DATA_DIR)::Vector{Int}
-    if !isdir(data_dir)
-        @warn "Data directory $data_dir does not exist."
-        return Vector{Dict{Symbol, Any}}()
-    elseif !isfile(joinpath(data_dir, "data.jld2"))
-        @warn "No cached data found in $data_dir."
-        return Vector{Dict{Symbol, Any}}()
-    end
-
-    data_file = joinpath(data_dir, "data.jld2")
-    file = jldopen(data_file, "r")
-
-    if !haskey(file, "activity")
-        @warn "No activities found in cache."
-        close(file)
+    db_path = get_db_path(data_dir)
+    if !isfile(db_path)
+        @warn "No SQLite database found at $db_path."
         return Vector{Int}()
     end
 
-    out = parse.(Int, keys(file["activity"]))
-    close(file)
-
-    @info "Loaded $(length(out)) cached activity IDs from $data_file."
-    
+    db = SQLite.DB(db_path)
+    out = get_cached_ids_db(db)
+    @info "Loaded $(length(out)) cached activity IDs from $db_path."
     return out
 end
 
@@ -542,28 +489,12 @@ Load a cached activity from disk by ID.
 This function does not contact the Strava API and only loads data previously cached by `get_activity`.
 """
 function get_cached_activity(id::Int; data_dir::String=DATA_DIR)::Union{Dict{Symbol, Any}, Missing}
-    data_file = joinpath(data_dir, "data.jld2")
-    if !isfile(data_file)
-        @warn "No cached data found in $data_dir."
+    db_path = get_db_path(data_dir)
+    if !isfile(db_path)
         return missing
     end
-    file = jldopen(data_file, "r")
-
-    if !haskey(file, "activity/$id")
-        close(file)
-        @warn "Activity $id not found in cache."
-        return missing
-    end
-
-    activity = Dict{Symbol, Any}()
-
-    data = file["activity/$id"]
-    for k in keys(data)
-        activity[Symbol(k)] = data[k]
-    end
-
-    close(file)
-    return activity
+    db = SQLite.DB(db_path)
+    return get_cached_activity_db(db, id)
 end
 
 """
@@ -582,24 +513,12 @@ Efficiently load a cached activity stream's data vector from disk by ID and stre
 This function does not contact the Strava API and only loads the requested stream's data vector from the cache.
 """
 function get_cached_activity_stream(id::Int, stream::Symbol; data_dir::String=DATA_DIR)::Union{Dict{Symbol, Any}, Missing}
-    data_file = joinpath(data_dir, "data.jld2")
-    if !isfile(data_file)
-        @warn "No cached data found in $data_dir."
+    db_path = get_db_path(data_dir)
+    if !isfile(db_path)
         return missing
     end
-    file = jldopen(data_file, "r")
-    if !haskey(file, "activity/$id")
-        close(file)
-        @warn "Activity $id not found in cache."
-        return missing
-    elseif !haskey(file, "activity/$id/$stream")
-        close(file)
-        @warn "Stream $stream not found in activity $id."
-        return missing
-    end
-    stream_data = file["activity/$id/$stream"]
-    close(file)
-    return stream_data
+    db = SQLite.DB(db_path)
+    return get_cached_stream_db(db, id, string(stream))
 end
 
 @setup_workload begin
@@ -635,7 +554,7 @@ Delete all cached data files in the `DATA_DIR`.
 - Nothing.
 """
 function clear_data(; data_dir::String = DATA_DIR)::Nothing
-    rm(joinpath(data_dir, "data.jld2"), force = true)
+    rm(get_db_path(data_dir), force = true)
 end
 
 end  # module

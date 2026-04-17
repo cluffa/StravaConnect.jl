@@ -85,14 +85,14 @@ using Dates
                 @test list[1][:id] == 1
                 
                 # Verify file exists
-                @test isfile(joinpath(data_dir, "data.jld2"))
+                @test isfile(joinpath(data_dir, "data.sqlite"))
                 
                 # Test get_cached_activity_list
                 cached_list = get_cached_activity_list(data_dir)
                 @test length(cached_list) == 1
                 
                 # Test get_activity (detailed, with streams)
-                activity = get_activity(1, u; data_dir=data_dir)
+                activity = get_activity(1, u; data_dir=data_dir, verbose=true)
                 @test haskey(activity, :time)
                 @test activity[:time][:data] == [1, 2, 3]
                 
@@ -102,15 +102,17 @@ using Dates
                 
                 # Test get_cached_activity
                 cached_activity = get_cached_activity(1; data_dir=data_dir)
+                @test !ismissing(cached_activity)
                 @test cached_activity[:time][:data] == [1, 2, 3]
                 
                 # Test get_cached_activity_stream
                 stream = get_cached_activity_stream(1, :distance; data_dir=data_dir)
+                @test !ismissing(stream)
                 @test stream[:data] == [10.0, 20.0, 30.0]
 
                 # Test clear_data
                 StravaConnect.clear_data(; data_dir=data_dir)
-                @test !isfile(joinpath(data_dir, "data.jld2"))
+                @test !isfile(joinpath(data_dir, "data.sqlite"))
             end
         end
 

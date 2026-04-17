@@ -251,6 +251,9 @@ This function allows StravaConnect to be used without explicitly managing a User
 - `User`: Loaded or newly created user struct
 """
 function get_or_setup_user(; force_reauthenticate::Bool = false)::User
+    # Automatically migrate if needed
+    StravaConnect.migrate_jld2_to_sqlite(StravaConnect.DATA_DIR)
+
     if _CACHED_USER[] !== nothing && !force_reauthenticate
         return _CACHED_USER[]
     end
