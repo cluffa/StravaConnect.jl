@@ -21,17 +21,23 @@ end
 
 function start!(s::StravaMockServer)
     s.server = HTTP.serve!(s.port) do request
+        headers = [
+            "Content-Type" => "application/json",
+            "X-RateLimit-Limit" => "100,1000",
+            "X-RateLimit-Usage" => "10,100"
+        ]
+        
         if occursin("/api/v3/athlete/activities", request.target)
-            return HTTP.Response(200, ["Content-Type" => "application/json"], JSON3.write(s.activities))
+            return HTTP.Response(200, headers, JSON3.write(s.activities))
         elseif (m = match(r"/api/v3/activities/(\d+)/streams", request.target)) !== nothing
             id = m.captures[1]
             if haskey(s.streams, id)
-                return HTTP.Response(200, ["Content-Type" => "application/json"], JSON3.write(s.streams[id]))
+                return HTTP.Response(200, headers, JSON3.write(s.streams[id]))
             else
-                return HTTP.Response(404, ["Content-Type" => "application/json"], JSON3.write(Dict(:message => "Not Found")))
+                return HTTP.Response(404, headers, JSON3.write(Dict(:message => "Not Found")))
             end
         elseif occursin("/oauth/token", request.target)
-            return HTTP.Response(200, ["Content-Type" => "application/json"], JSON3.write(Dict(
+            return HTTP.Response(200, headers, JSON3.write(Dict(
                 :access_token => "mock_access_token",
                 :refresh_token => "mock_refresh_token",
                 :expires_at => Int(floor(time())) + 3600,
@@ -39,7 +45,7 @@ function start!(s::StravaMockServer)
                 :athlete => Dict(:id => 1, :firstname => "Mock", :lastname => "User")
             )))
         end
-        return HTTP.Response(404, ["Content-Type" => "application/json"], JSON3.write(Dict(:message => "Not Found")))
+        return HTTP.Response(404, headers, JSON3.write(Dict(:message => "Not Found")))
     end
     @info "Strava mock server started on port $(s.port)"
     return s
