@@ -3,7 +3,6 @@ on:
   push:
     branches:
       - main
-      - beta
     tags: ['*']
   pull_request:
   workflow_dispatch:
@@ -26,6 +25,8 @@ jobs:
         version:
           - '1.10' # LTS
           - '1'    # Latest stable
+          - 'pre'  # Latest beta/RC
+          - 'nightly'
         os:
           - ubuntu-latest
           - macOS-latest
