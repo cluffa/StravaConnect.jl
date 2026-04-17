@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - main
+      - beta
     tags: ['*']
   pull_request:
   workflow_dispatch:
