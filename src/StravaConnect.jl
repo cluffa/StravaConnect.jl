@@ -49,6 +49,23 @@ function update_rate_limit!(resp::HTTP.Response)
     end
 end
 
+function check_rate_limit()
+    rl = GLOBAL_RATE_LIMIT[]
+    short_remaining = rl.short_term_limit - rl.short_term_usage
+    long_remaining = rl.long_term_limit - rl.long_term_usage
+    return (short=short_remaining, long=long_remaining)
+end
+
+function wait_if_needed()
+    rem = check_rate_limit()
+    if rem.short <= 1
+        @warn "Rate limit nearly reached ($(rem.short) remaining in 15min). Waiting 60s..."
+        sleep(60)
+    elseif rem.long <= 1
+        error("Daily rate limit reached. Aborting.")
+    end
+end
+
 const HIDE = true
 const STREAMKEYS = ("time", "distance", "latlng", "altitude", "velocity_smooth", "heartrate", "cadence", "watts", "temp", "moving", "grade_smooth")
 
@@ -93,6 +110,8 @@ Fetch a paginated list of activities from the Strava API.
 - `HTTP.Response`: HTTP response containing the activities data.
 """
 function activities_list_api(u::User, page::Int, per_page::Int, after::Int)::Union{HTTP.Response, Nothing}
+    wait_if_needed()
+    
     resp = HTTP.get(
         "$(strava_base_url())/api/v3/athlete/activities?page=$page&per_page=$per_page&after=$after",
         headers = Dict("Authorization" => "Bearer $(u.access_token)"),
@@ -129,6 +148,10 @@ Fetch detailed data for a specific activity from the Strava API.
 - `ErrorException` if rate limit is exceeded and `wait_on_rate_limit` is false.
 """
 function activity_api(u::User, id::Int; wait_on_rate_limit::Bool = true)::HTTP.Response
+    if wait_on_rate_limit
+        wait_if_needed()
+    end
+
     response = HTTP.get(
         "$(strava_base_url())/api/v3/activities/$id/streams?keys=$(join(STREAMKEYS, ","))&key_by_type=true",
         headers = Dict(
