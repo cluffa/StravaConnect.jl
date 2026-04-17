@@ -222,7 +222,7 @@ Retrieve a list of all activities for a user, with caching.
 # Returns
 - `Vector{Dict}`: List of activity dictionaries.
 
-See also: [`get_activity_list(; ...)`](@ref) for a version that does not require a `User` argument.
+See also: [`get_activity_list`](@ref) for a version that does not require a `User` argument.
 """
 function get_activity_list(u::User; data_dir::String = DATA_DIR, force_update::Bool = false)::Vector{Dict{Symbol, Any}}
     refresh_if_needed!(u)
@@ -394,7 +394,7 @@ Retrieve detailed data for a specific activity, with caching.
 # Returns
 - `Dict{Symbol, Any}`: Activity data including streams.
 
-See also: [`get_activity(id; ...)`](@ref) for a version that does not require a `User` argument.
+See also: [`get_activity`](@ref) for a version that does not require a `User` argument.
 """
 function get_activity(id::Int, u::User; data_dir::String = DATA_DIR, force_update::Bool = false, verbose::Bool = false, wait_on_rate_limit::Bool = true)::Dict{Symbol, Any}
     refresh_if_needed!(u)
