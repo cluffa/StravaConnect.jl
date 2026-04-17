@@ -255,60 +255,78 @@ function get_activity_list(u::User; data_dir::String = DATA_DIR, force_update::B
     refresh_if_needed!(u)
     db = init_db(data_dir)
 
-    T = Vector{Dict{Symbol, Union{Dict{Symbol, Any}, Any}}}
+    try
+        T = Vector{Dict{Symbol, Union{Dict{Symbol, Any}, Any}}}
 
-    mtime = 0
-    list = Dict{Symbol, Any}[]
-    
-    if !force_update
-        mtime = get_cached_mtime(db)
-        list = get_cached_metadata_all(db)
-        @info "$(length(list)) activities loaded from SQLite cache"
-    else
-        @info "Force update: fetching all activities from API."
-    end
-
-    n_cache = length(list)
-    
-    # only run if mtime is more than 1 hour ago
-    if mtime < time() - 3600 || force_update
-        @info "Fetching activities after $(unix2datetime(mtime))"
- 
-        per_page = 200
-        page = 1
-        new_count = 0
-        while true
-            resp = activities_list_api(u, page, per_page, mtime)
-
-            if isnothing(resp)
-                break
-            end
-
-            data = JSON3.read(resp.body, T)
-            
-            if length(data) == 0
-                break
-            end
-
-            for act in data
-                id = Int(act[:id])
-                save_activity_metadata!(db, id, act, Int(floor(time())))
-                push!(list, act)
-                new_count += 1
-            end
-            
-            if length(data) < per_page
-                break
-            end
-
-            page += 1
-        end
+        last_check_mtime = 0
+        list = Dict{Symbol, Any}[]
         
-        set_cached_mtime!(db, Int(floor(time())))
-        @info "$new_count new activities loaded, total $(length(list)) activities"
-    end
+        if !force_update
+            last_check_mtime = get_cached_mtime(db)
+            list = get_cached_metadata_all(db)
+            @info "$(length(list)) activities loaded from SQLite cache"
+        else
+            @info "Force update: fetching all activities from API."
+        end
 
-    return list
+        # Throttle: Only check API if last check was > 5 minutes ago (unless force_update)
+        if last_check_mtime < time() - 300 || force_update
+            # Calculate 'after' based on latest activity start date in DB
+            max_start = get_max_start_date(db)
+            
+            # Use a 1-day buffer (86400s) to catch activities that started in the past
+            # but were only uploaded/synced to Strava recently.
+            after_time = max(0, max_start - 86400)
+            
+            if force_update
+                after_time = 0
+            end
+
+            @info "Checking for new activities after $(unix2datetime(after_time))"
+    
+            per_page = 200
+            page = 1
+            new_count = 0
+            existing_ids = Set(Int(act[:id]) for act in list)
+            
+            while true
+                resp = activities_list_api(u, page, per_page, after_time)
+
+                if isnothing(resp)
+                    break
+                end
+
+                data = JSON3.read(resp.body, T)
+                
+                if length(data) == 0
+                    break
+                end
+
+                for act in data
+                    id = Int(act[:id])
+                    save_activity_metadata!(db, id, act, Int(floor(time())))
+                    if id ∉ existing_ids
+                        push!(list, act)
+                        push!(existing_ids, id)
+                        new_count += 1
+                    end
+                end
+                
+                if length(data) < per_page
+                    break
+                end
+
+                page += 1
+            end
+            
+            set_cached_mtime!(db, Int(floor(time())))
+            @info "$new_count new activities added to cache, total $(length(list)) activities"
+        end
+
+        return list
+    finally
+        close(db)
+    end
 end
 
 """
@@ -399,47 +417,51 @@ function get_activity(id::Int, u::User; data_dir::String = DATA_DIR, force_updat
     refresh_if_needed!(u)
     db = init_db(data_dir)
 
-    T = Dict{Symbol, Dict{Symbol, Any}}
+    try
+        T = Dict{Symbol, Dict{Symbol, Any}}
 
-    activity = missing
-    if !force_update
-        if has_cached_streams(db, id)
-            activity = get_cached_activity_db(db, id)
-        end
-    end
-    
-    if !ismissing(activity)
-        if verbose
-            @info "Loaded activity $id from SQLite cache"
-        end
-        return activity
-    else
-        response = activity_api(u, id; wait_on_rate_limit=wait_on_rate_limit)
-        if response.status == 200
-            activity_data = JSON3.read(response.body, T)
-            activity = Dict{Symbol, Any}()
-
-            for k in keys(activity_data)
-                stream = activity_data[k]
-                ST = STREAM_TYPES[k]
-                if any(isnothing.(stream[:data])) && ST == Float32
-                    stream[:data] = ST[isnothing(x) ? NaN32 : ST(x) for x in stream[:data]]
-                else
-                    stream[:data] = ST[ST(x) for x in stream[:data]]  # convert the data to the correct type
-                end
-                
-                save_stream!(db, id, string(k), Dict(stream))
-                activity[k] = stream
+        activity = missing
+        if !force_update
+            if has_cached_streams(db, id)
+                activity = get_cached_activity_db(db, id)
             end
-
+        end
+        
+        if !ismissing(activity)
             if verbose
-                @info "Fetched activity $id from API and cached in SQLite"
+                @info "Loaded activity $id from SQLite cache"
             end
             return activity
-        elseif  response.status != 200
-            @warn "Error getting activity $id: $(response.status) $(response.body)"
-            return Dict{Symbol, Any}()  # return an empty dict if the request failed
+        else
+            response = activity_api(u, id; wait_on_rate_limit=wait_on_rate_limit)
+            if response.status == 200
+                activity_data = JSON3.read(response.body, T)
+                activity = Dict{Symbol, Any}()
+
+                for k in keys(activity_data)
+                    stream = activity_data[k]
+                    ST = STREAM_TYPES[k]
+                    if any(isnothing.(stream[:data])) && ST == Float32
+                        stream[:data] = ST[isnothing(x) ? NaN32 : ST(x) for x in stream[:data]]
+                    else
+                        stream[:data] = ST[ST(x) for x in stream[:data]]  # convert the data to the correct type
+                    end
+                    
+                    save_stream!(db, id, string(k), Dict(stream))
+                    activity[k] = stream
+                end
+
+                if verbose
+                    @info "Fetched activity $id from API and cached in SQLite"
+                end
+                return activity
+            elseif  response.status != 200
+                @warn "Error getting activity $id: $(response.status) $(response.body)"
+                return Dict{Symbol, Any}()  # return an empty dict if the request failed
+            end
         end
+    finally
+        close(db)
     end
 
     return Dict{Symbol, Any}()
@@ -466,9 +488,13 @@ function get_cached_activity_list(data_dir::String = DATA_DIR)::Vector{Dict{Symb
     end
 
     db = SQLite.DB(db_path)
-    out = get_cached_metadata_all(db)
-    @info "Loaded cached activity list from $db_path with $(length(out)) activities."
-    return out
+    try
+        out = get_cached_metadata_all(db)
+        @info "Loaded cached activity list from $db_path with $(length(out)) activities."
+        return out
+    finally
+        close(db)
+    end
 end
 
 """
@@ -492,9 +518,13 @@ function get_cached_activity_ids(data_dir::String = DATA_DIR)::Vector{Int}
     end
 
     db = SQLite.DB(db_path)
-    out = get_cached_ids_db(db)
-    @info "Loaded $(length(out)) cached activity IDs from $db_path."
-    return out
+    try
+        out = get_cached_ids_db(db)
+        @info "Loaded $(length(out)) cached activity IDs from $db_path."
+        return out
+    finally
+        close(db)
+    end
 end
 
 """
@@ -517,7 +547,11 @@ function get_cached_activity(id::Int; data_dir::String=DATA_DIR)::Union{Dict{Sym
         return missing
     end
     db = SQLite.DB(db_path)
-    return get_cached_activity_db(db, id)
+    try
+        return get_cached_activity_db(db, id)
+    finally
+        close(db)
+    end
 end
 
 """
@@ -541,7 +575,11 @@ function get_cached_activity_stream(id::Int, stream::Symbol; data_dir::String=DA
         return missing
     end
     db = SQLite.DB(db_path)
-    return get_cached_stream_db(db, id, string(stream))
+    try
+        return get_cached_stream_db(db, id, string(stream))
+    finally
+        close(db)
+    end
 end
 
 @setup_workload begin

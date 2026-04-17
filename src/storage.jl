@@ -16,14 +16,22 @@ function init_db(data_dir::String)
     # Set busy timeout to 5 seconds to handle transient locks
     SQLite.execute(db, "PRAGMA busy_timeout = 5000")
     
-    # Activities table: id, metadata (json), mtime
+    # Activities table: id, metadata (json), mtime, start_date
     SQLite.execute(db, """
         CREATE TABLE IF NOT EXISTS activities (
             id INTEGER PRIMARY KEY,
             metadata TEXT,
-            mtime INTEGER
+            mtime INTEGER,
+            start_date INTEGER
         )
     """)
+    
+    # Ensure start_date column exists (for migration from previous SQLite version)
+    try
+        SQLite.execute(db, "ALTER TABLE activities ADD COLUMN start_date INTEGER")
+    catch e
+        # Column likely already exists
+    end
     
     # Streams table: activity_id, stream_type, data (json)
     SQLite.execute(db, """
@@ -49,7 +57,26 @@ end
 
 function save_activity_metadata!(db::SQLite.DB, id::Int, metadata::Dict, mtime::Int)
     metadata_json = JSON3.write(metadata)
-    SQLite.execute(db, "INSERT OR REPLACE INTO activities (id, metadata, mtime) VALUES (?, ?, ?)", (id, metadata_json, mtime))
+    # Parse start_date from metadata if possible
+    start_date_unix = 0
+    if haskey(metadata, :start_date)
+        try
+            start_date_unix = Int(floor(datetime2unix(DateTime(metadata[:start_date][1:19]))))
+        catch
+        end
+    end
+    
+    SQLite.execute(db, "INSERT OR REPLACE INTO activities (id, metadata, mtime, start_date) VALUES (?, ?, ?, ?)", 
+                   (id, metadata_json, mtime, start_date_unix))
+end
+
+function get_max_start_date(db::SQLite.DB)
+    result = SQLite.DBInterface.execute(db, "SELECT MAX(start_date) as max_sd FROM activities")
+    for row in result
+        val = row.max_sd
+        return ismissing(val) ? 0 : Int(val)
+    end
+    return 0
 end
 
 function save_stream!(db::SQLite.DB, activity_id::Int, stream_type::String, data::Dict)

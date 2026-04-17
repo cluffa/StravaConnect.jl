@@ -28,7 +28,16 @@ function start!(s::StravaMockServer)
         ]
         
         if occursin("/api/v3/athlete/activities", request.target)
-            return HTTP.Response(200, headers, JSON3.write(s.activities))
+            uri = URIs.URI(request.target)
+            query = URIs.queryparams(uri)
+            after_val = parse(Int, get(query, "after", "0"))
+            
+            filtered_activities = filter(s.activities) do act
+                sd = get(act, :start_date, "1970-01-01T00:00:00Z")
+                unix_sd = Int(floor(datetime2unix(DateTime(sd[1:19]))))
+                return unix_sd > after_val
+            end
+            return HTTP.Response(200, headers, JSON3.write(filtered_activities))
         elseif (m = match(r"/api/v3/activities/(\d+)/streams", request.target)) !== nothing
             id = m.captures[1]
             if haskey(s.streams, id)
