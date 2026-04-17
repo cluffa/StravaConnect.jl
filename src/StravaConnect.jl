@@ -13,6 +13,7 @@ export setup_user, get_or_setup_user,
     reduce_subdicts!, fill_dicts!
 
 const DATA_DIR = get(ENV, "STRAVA_DATA_DIR", tempdir())
+strava_base_url() = get(ENV, "STRAVA_BASE_URL", "https://www.strava.com")
 
 const HIDE = true
 const STREAMKEYS = ("time", "distance", "latlng", "altitude", "velocity_smooth", "heartrate", "cadence", "watts", "temp", "moving", "grade_smooth")
@@ -37,6 +38,9 @@ const METER_TO_FEET = 3.28084
 c2f(c::Number)::Number = (c * 9/5) + 32
 
 include("oauth.jl")
+include("test_server/mock_server.jl")
+
+export StravaMockServer, start!, stop!, add_activity!, set_streams!
 
 """
     activites_list_api(u::User, page::Int, per_page::Int, after::Int) -> HTTP.Response
@@ -54,7 +58,7 @@ Fetch a paginated list of activities from the Strava API.
 """
 function activities_list_api(u::User, page::Int, per_page::Int, after::Int)::Union{HTTP.Response, Nothing}
     resp = HTTP.get(
-        "https://www.strava.com/api/v3/athlete/activities?page=$page&per_page=$per_page&after=$after",
+        "$(strava_base_url())/api/v3/athlete/activities?page=$page&per_page=$per_page&after=$after",
         headers = Dict("Authorization" => "Bearer $(u.access_token)"),
         status_exception = false  # Don't throw an exception for non-200 responses
     )
@@ -88,7 +92,7 @@ Fetch detailed data for a specific activity from the Strava API.
 """
 function activity_api(u::User, id::Int; wait_on_rate_limit::Bool = true)::HTTP.Response
     response = HTTP.get(
-        "https://www.strava.com/api/v3/activities/$id/streams?keys=$(join(STREAMKEYS, ","))&key_by_type=true",
+        "$(strava_base_url())/api/v3/activities/$id/streams?keys=$(join(STREAMKEYS, ","))&key_by_type=true",
         headers = Dict(
             "Authorization" => "Bearer $(u.access_token)",
             "accept" => "application/json"

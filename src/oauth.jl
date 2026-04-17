@@ -1,8 +1,8 @@
 using HTTP
 using JSON3
 
-const STRAVA_AUTH_URL = "https://www.strava.com/oauth/authorize"
-const STRAVA_TOKEN_URL = "https://www.strava.com/oauth/token"
+strava_auth_url() = "$(StravaConnect.strava_base_url())/oauth/authorize"
+strava_token_url() = "$(StravaConnect.strava_base_url())/oauth/token"
 # const DATA_DIR = get(ENV, "STRAVA_DATA_DIR", tempdir()) # already defined in StravaConnect.jl
 
 mutable struct User
@@ -159,7 +159,7 @@ function generate_authorization_url(redirect_uri::String)::String
         "response_type" => "code",
         "scope" => "activity:read_all,profile:read_all"
     )
-    return "$STRAVA_AUTH_URL?$(HTTP.escapeuri(params))"
+    return "$(strava_auth_url())?$(HTTP.escapeuri(params))"
 end
 
 """
@@ -174,7 +174,7 @@ Exchange authorization code for access token.
 - `JSON3.Object`: Token response containing access_token, refresh_token, and expiration
 """
 function exchange_code_for_token(code::String)::Dict{String, Any}
-    response = HTTP.post(STRAVA_TOKEN_URL, 
+    response = HTTP.post(strava_token_url(), 
         ["Content-Type" => "application/json"],
         JSON3.write(Dict(
             "client_id" => ENV["STRAVA_CLIENT_ID"],
@@ -199,7 +199,7 @@ Get new access token using refresh token.
 - `JSON3.Object`: Token response containing new access_token and refresh_token
 """
 function refresh_token(refresh_token::String)::Dict{String, Any}
-    response = HTTP.post(STRAVA_TOKEN_URL,
+    response = HTTP.post(strava_token_url(),
         ["Content-Type" => "application/json"],
         JSON3.write(Dict(
             "client_id" => ENV["STRAVA_CLIENT_ID"],
